@@ -16,6 +16,7 @@ function kgToLbs(kg: number): number {
 
 export function SetRow({ set, weightUnit, isNew }: SetRowProps) {
   const { theme } = useTheme();
+  const isBodyweight = set.weightKg === 0;
   const displayWeight = weightUnit === "lbs" ? kgToLbs(set.weightKg) : set.weightKg;
 
   return (
@@ -26,12 +27,18 @@ export function SetRow({ set, weightUnit, isNew }: SetRowProps) {
         </Text>
       </View>
       <View style={styles.middle}>
-        <Text style={[styles.weight, { color: theme.text, fontFamily: "Inter_700Bold" }]}>
-          {displayWeight}
-          <Text style={[styles.unit, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
-            {" "}{weightUnit}
+        {isBodyweight ? (
+          <Text style={[styles.weight, { color: theme.text, fontFamily: "Inter_700Bold" }]}>
+            Bodyweight
           </Text>
-        </Text>
+        ) : (
+          <Text style={[styles.weight, { color: theme.text, fontFamily: "Inter_700Bold" }]}>
+            {displayWeight}
+            <Text style={[styles.unit, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
+              {" "}{weightUnit}
+            </Text>
+          </Text>
+        )}
       </View>
       <View style={styles.right}>
         <Text style={[styles.reps, { color: theme.text, fontFamily: "Inter_600SemiBold" }]}>

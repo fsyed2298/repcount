@@ -64,6 +64,7 @@ export default function CameraScreen() {
       router.replace({
         pathname: "/exercise-select",
         params: {
+          fromCamera: "1",
           detectedWeightKg: result.detected ? String(result.weightKg ?? "") : "",
           detectedWeightLbs: result.detected ? String(result.weightLbs ?? "") : "",
           weightConfidence: result.confidence ?? "",

@@ -14,7 +14,7 @@ interface WorkoutContextType {
   weightUnit: WeightUnit;
   setWeightUnit: (unit: WeightUnit) => void;
   fetchWorkouts: () => Promise<void>;
-  startWorkout: (exerciseId: string, exerciseName: string, detectedWeightKg?: number | null) => Promise<WorkoutSession | null>;
+  startWorkout: (exerciseId: string, exerciseName: string, detectedWeightKg?: number | null, isBodyweight?: boolean) => Promise<WorkoutSession | null>;
   addSet: (workoutId: string, reps: number, weightKg: number, setNumber: number) => Promise<WorkoutSet | null>;
   completeWorkout: (workoutId: string) => Promise<void>;
   deleteWorkout: (workoutId: string) => Promise<void>;
@@ -45,7 +45,8 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
   const startWorkout = useCallback(async (
     exerciseId: string,
     exerciseName: string,
-    detectedWeightKg?: number | null
+    detectedWeightKg?: number | null,
+    isBodyweight?: boolean
   ): Promise<WorkoutSession | null> => {
     try {
       const res = await fetch(`${API_URL}/workouts`, {
@@ -59,7 +60,7 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
         }),
       });
       const workout: WorkoutSession = await res.json();
-      setActiveWorkout(workout);
+      setActiveWorkout({ ...workout, isBodyweight: isBodyweight ?? false });
       return workout;
     } catch (e) {
       console.error("startWorkout error:", e);

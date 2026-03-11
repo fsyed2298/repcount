@@ -46,6 +46,7 @@ export default function ExerciseSelectScreen() {
     detectedExerciseId?: string;
     detectedExerciseName?: string;
     exerciseConfidence?: string;
+    fromCamera?: string;
   }>();
 
   const [exercises, setExercises] = useState<Exercise[]>([]);
@@ -58,6 +59,7 @@ export default function ExerciseSelectScreen() {
   const detectedWeightKg = params.detectedWeightKg ? parseFloat(params.detectedWeightKg) : null;
   const detectedWeightLbs = params.detectedWeightLbs ? parseFloat(params.detectedWeightLbs) : null;
   const hasDetectedWeight = !!detectedWeightKg;
+  const cameFromCamera = params.fromCamera === "1";
 
   const displayWeight = weightUnit === "lbs" && detectedWeightLbs
     ? `${detectedWeightLbs} lbs`
@@ -97,10 +99,12 @@ export default function ExerciseSelectScreen() {
     setIsStarting(true);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
+    const isBodyweight = selectedExercise.equipment === "bodyweight";
     const workout = await startWorkout(
       selectedExercise.id,
       selectedExercise.name,
-      detectedWeightKg ?? null
+      isBodyweight ? null : (detectedWeightKg ?? null),
+      isBodyweight
     );
 
     setIsStarting(false);
@@ -130,22 +134,28 @@ export default function ExerciseSelectScreen() {
         <View style={{ width: 40 }} />
       </View>
 
-      {/* Weight Detection Result */}
-      {hasDetectedWeight && (
-        <View style={[styles.weightBanner, { backgroundColor: `${accent}15`, borderColor: `${accent}30` }]}>
-          <View style={[styles.weightIconCircle, { backgroundColor: accent }]}>
-            <Ionicons name="barbell" size={18} color="#fff" />
+      {/* Weight Detection Result — always shown when coming from camera */}
+      {cameFromCamera && (
+        <View style={[
+          styles.weightBanner,
+          hasDetectedWeight
+            ? { backgroundColor: `${accent}15`, borderColor: `${accent}30` }
+            : { backgroundColor: theme.backgroundSecondary, borderColor: theme.border }
+        ]}>
+          <View style={[styles.weightIconCircle, { backgroundColor: hasDetectedWeight ? accent : theme.backgroundTertiary }]}>
+            <Ionicons name={hasDetectedWeight ? "barbell" : "barbell-outline"} size={18} color={hasDetectedWeight ? "#fff" : theme.textTertiary} />
           </View>
           <View style={{ flex: 1 }}>
             <Text style={[styles.weightDetectedLabel, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
-              Weight detected
+              {hasDetectedWeight ? "Weight detected from photo" : "No weight detected"}
             </Text>
-            <Text style={[styles.weightDetectedValue, { color: theme.text, fontFamily: "Inter_700Bold" }]}>
-              {displayWeight}
-              {params.weightDescription ? ` · ${params.weightDescription}` : ""}
+            <Text style={[styles.weightDetectedValue, { color: hasDetectedWeight ? theme.text : theme.textTertiary, fontFamily: "Inter_700Bold" }]}>
+              {hasDetectedWeight
+                ? `${displayWeight}${params.weightDescription ? ` · ${params.weightDescription}` : ""}`
+                : "Set weight manually below"}
             </Text>
           </View>
-          {params.weightConfidence && (
+          {hasDetectedWeight && params.weightConfidence && (
             <View style={[styles.confidenceBadge, {
               backgroundColor: params.weightConfidence === "high"
                 ? "rgba(52,199,89,0.12)"
@@ -348,14 +358,15 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   searchInput: { flex: 1, fontSize: 15 },
-  categoryRow: { paddingHorizontal: 20, gap: 8, marginBottom: 12, paddingRight: 20 },
+  categoryRow: { paddingLeft: 20, paddingRight: 20, gap: 8, marginBottom: 12 },
   catChip: {
-    paddingHorizontal: 14,
-    paddingVertical: 7,
+    paddingHorizontal: 18,
+    paddingVertical: 9,
     borderRadius: 20,
     borderWidth: 1,
+    flexShrink: 0,
   },
-  catChipText: { fontSize: 13 },
+  catChipText: { fontSize: 14 },
   loadingContainer: { flex: 1, alignItems: "center", justifyContent: "center" },
   list: { paddingHorizontal: 20 },
   noResults: { paddingTop: 40, alignItems: "center" },

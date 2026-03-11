@@ -20,6 +20,7 @@ export interface WorkoutSession {
   id: string;
   exerciseId: string;
   exerciseName: string;
+  isBodyweight?: boolean;
   detectedWeightKg?: number | null;
   weightUnit: "kg" | "lbs";
   startedAt: string;

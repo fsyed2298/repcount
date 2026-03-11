@@ -1,19 +1,18 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   View,
   Text,
   StyleSheet,
   Pressable,
   ScrollView,
-  TextInput,
   Alert,
   Platform,
   Animated,
-  Keyboard,
 } from "react-native";
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
+import { Accelerometer } from "expo-sensors";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "@/constants/theme";
 import { useWorkout } from "@/context/workout";
@@ -26,29 +25,46 @@ function lbsToKg(lbs: number) {
   return Math.round((lbs / 2.2046) * 100) / 100;
 }
 
+const ACCEL_THRESHOLD = 1.0;
+const MIN_REP_MS = 550;
+const WINDOW_SIZE = 15;
+
 export default function WorkoutActiveScreen() {
   const insets = useSafeAreaInsets();
   const { theme, accent } = useTheme();
   const { activeWorkout, addSet, completeWorkout, weightUnit } = useWorkout();
 
-  const [reps, setReps] = useState("10");
+  const [targetReps, setTargetReps] = useState(10);
   const [weight, setWeight] = useState(() => {
     if (activeWorkout?.detectedWeightKg) {
       return weightUnit === "lbs"
-        ? String(kgToLbs(activeWorkout.detectedWeightKg))
-        : String(activeWorkout.detectedWeightKg);
+        ? kgToLbs(activeWorkout.detectedWeightKg)
+        : activeWorkout.detectedWeightKg;
     }
-    return weightUnit === "lbs" ? "25" : "10";
+    return weightUnit === "lbs" ? 25 : 10;
   });
-  const [isLogging, setIsLogging] = useState(false);
+
   const [timer, setTimer] = useState(0);
   const [isResting, setIsResting] = useState(false);
   const [restTimer, setRestTimer] = useState(90);
+
+  const [isTracking, setIsTracking] = useState(false);
+  const [currentReps, setCurrentReps] = useState(0);
   const [lastAddedSetId, setLastAddedSetId] = useState<string | null>(null);
+
   const scrollRef = useRef<ScrollView>(null);
   const pulseAnim = useRef(new Animated.Value(1)).current;
+  const repFlashAnim = useRef(new Animated.Value(1)).current;
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const restTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const accelWindowRef = useRef<number[]>([]);
+  const lastRepTimeRef = useRef(0);
+  const accelSubRef = useRef<ReturnType<typeof Accelerometer.addListener> | null>(null);
+  const currentRepsRef = useRef(0);
+  const targetRepsRef = useRef(targetReps);
+  const isLoggingRef = useRef(false);
+
+  useEffect(() => { targetRepsRef.current = targetReps; }, [targetReps]);
 
   useEffect(() => {
     timerRef.current = setInterval(() => setTimer(t => t + 1), 1000);
@@ -74,55 +90,115 @@ export default function WorkoutActiveScreen() {
     return () => { if (restTimerRef.current) clearInterval(restTimerRef.current); };
   }, [isResting]);
 
+  const handleLogSet = useCallback(async (repsToLog: number) => {
+    if (!activeWorkout || isLoggingRef.current) return;
+    isLoggingRef.current = true;
+
+    const weightKg = activeWorkout.isBodyweight
+      ? 0
+      : weightUnit === "lbs" ? lbsToKg(weight) : weight;
+    const setNumber = (activeWorkout.sets.length) + 1;
+
+    const newSet = await addSet(activeWorkout.id, repsToLog, weightKg, setNumber);
+    isLoggingRef.current = false;
+
+    if (newSet) {
+      setLastAddedSetId(newSet.id);
+      setIsResting(true);
+      setRestTimer(90);
+      Animated.sequence([
+        Animated.timing(pulseAnim, { toValue: 1.04, duration: 120, useNativeDriver: true }),
+        Animated.timing(pulseAnim, { toValue: 1, duration: 120, useNativeDriver: true }),
+      ]).start();
+      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 200);
+    }
+  }, [activeWorkout, weightUnit, weight, addSet, pulseAnim]);
+
+  const stopTracking = useCallback(async (repsToLog?: number) => {
+    setIsTracking(false);
+    accelSubRef.current?.remove();
+    accelSubRef.current = null;
+    Accelerometer.setUpdateInterval(1000);
+
+    const reps = repsToLog ?? currentRepsRef.current;
+    setCurrentReps(0);
+    currentRepsRef.current = 0;
+
+    if (reps > 0) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      await handleLogSet(reps);
+    }
+  }, [handleLogSet]);
+
+  const startTracking = useCallback(() => {
+    if (isResting) {
+      Alert.alert("Still resting", "Wait for rest timer to finish, or skip it first.");
+      return;
+    }
+    accelWindowRef.current = [];
+    lastRepTimeRef.current = 0;
+    currentRepsRef.current = 0;
+    setCurrentReps(0);
+    setIsTracking(true);
+
+    Accelerometer.setUpdateInterval(80);
+    accelSubRef.current = Accelerometer.addListener(({ x, y, z }) => {
+      const mag = Math.sqrt(x * x + y * y + z * z);
+      accelWindowRef.current.push(mag);
+      if (accelWindowRef.current.length > WINDOW_SIZE) {
+        accelWindowRef.current.shift();
+      }
+      if (accelWindowRef.current.length < 5) return;
+
+      const avg = accelWindowRef.current.reduce((a, b) => a + b, 0) / accelWindowRef.current.length;
+      const deviation = Math.abs(mag - avg);
+      const now = Date.now();
+
+      if (deviation > ACCEL_THRESHOLD && now - lastRepTimeRef.current > MIN_REP_MS) {
+        lastRepTimeRef.current = now;
+        currentRepsRef.current += 1;
+        const newCount = currentRepsRef.current;
+        setCurrentReps(newCount);
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
+        Animated.sequence([
+          Animated.timing(repFlashAnim, { toValue: 1.15, duration: 100, useNativeDriver: true }),
+          Animated.timing(repFlashAnim, { toValue: 1, duration: 100, useNativeDriver: true }),
+        ]).start();
+
+        if (newCount >= targetRepsRef.current) {
+          stopTracking(newCount);
+        }
+      }
+    });
+  }, [isResting, stopTracking, repFlashAnim]);
+
+  useEffect(() => {
+    return () => {
+      accelSubRef.current?.remove();
+    };
+  }, []);
+
   const formatTime = (secs: number) => {
     const m = Math.floor(secs / 60).toString().padStart(2, "0");
     const s = (secs % 60).toString().padStart(2, "0");
     return `${m}:${s}`;
   };
 
-  const handleLogSet = async () => {
-    Keyboard.dismiss();
-    const repsNum = parseInt(reps);
-    const weightNum = parseFloat(weight);
+  const adjustTargetReps = (delta: number) => {
+    setTargetReps(r => Math.max(1, r + delta));
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  };
 
-    if (!repsNum || repsNum <= 0) {
-      Alert.alert("Invalid reps", "Please enter a valid number of reps");
-      return;
-    }
-    if (!weightNum || weightNum <= 0) {
-      Alert.alert("Invalid weight", "Please enter a valid weight");
-      return;
-    }
-    if (!activeWorkout) return;
-
-    setIsLogging(true);
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-
-    const weightKg = weightUnit === "lbs" ? lbsToKg(weightNum) : weightNum;
-    const setNumber = (activeWorkout.sets.length) + 1;
-
-    const newSet = await addSet(activeWorkout.id, repsNum, weightKg, setNumber);
-    setIsLogging(false);
-
-    if (newSet) {
-      setLastAddedSetId(newSet.id);
-      setIsResting(true);
-      setRestTimer(90);
-
-      // Pulse animation for new set
-      Animated.sequence([
-        Animated.timing(pulseAnim, { toValue: 1.05, duration: 150, useNativeDriver: true }),
-        Animated.timing(pulseAnim, { toValue: 1, duration: 150, useNativeDriver: true }),
-      ]).start();
-
-      setTimeout(() => {
-        scrollRef.current?.scrollToEnd({ animated: true });
-      }, 200);
-    }
+  const adjustWeight = (delta: number) => {
+    const step = weightUnit === "lbs" ? 2.5 : 1.25;
+    setWeight(w => Math.max(0, Math.round((w + delta * step) * 4) / 4));
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   };
 
   const handleComplete = () => {
     if (!activeWorkout) return;
+    if (isTracking) stopTracking();
     Alert.alert(
       "Complete Workout",
       `Finish ${activeWorkout.exerciseName} with ${activeWorkout.sets.length} sets?`,
@@ -130,7 +206,6 @@ export default function WorkoutActiveScreen() {
         { text: "Cancel", style: "cancel" },
         {
           text: "Complete",
-          style: "default",
           onPress: async () => {
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
             await completeWorkout(activeWorkout.id);
@@ -139,21 +214,6 @@ export default function WorkoutActiveScreen() {
         },
       ]
     );
-  };
-
-  const adjustReps = (delta: number) => {
-    const curr = parseInt(reps) || 0;
-    const next = Math.max(1, curr + delta);
-    setReps(String(next));
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-  };
-
-  const adjustWeight = (delta: number) => {
-    const curr = parseFloat(weight) || 0;
-    const step = weightUnit === "lbs" ? 2.5 : 1.25;
-    const next = Math.max(0, Math.round((curr + delta * step) * 4) / 4);
-    setWeight(String(next));
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   };
 
   const topPad = Platform.OS === "web" ? 67 : insets.top;
@@ -173,8 +233,10 @@ export default function WorkoutActiveScreen() {
     );
   }
 
+  const isBodyweight = !!activeWorkout.isBodyweight;
   const totalVol = activeWorkout.sets.reduce((sum, s) => sum + s.reps * s.weightKg, 0);
   const displayVol = weightUnit === "lbs" ? kgToLbs(totalVol) : Math.round(totalVol);
+  const progressPct = isTracking && targetReps > 0 ? Math.min(currentReps / targetReps, 1) : 0;
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
@@ -182,9 +244,9 @@ export default function WorkoutActiveScreen() {
       <View style={[styles.header, { paddingTop: topPad + 12 }]}>
         <View style={styles.headerLeft}>
           <View style={styles.liveRow}>
-            <View style={[styles.liveDot, { backgroundColor: accent }]} />
-            <Text style={[styles.liveText, { color: accent, fontFamily: "Inter_600SemiBold" }]}>
-              LIVE
+            <View style={[styles.liveDot, { backgroundColor: isTracking ? "#34C759" : accent }]} />
+            <Text style={[styles.liveText, { color: isTracking ? "#34C759" : accent, fontFamily: "Inter_600SemiBold" }]}>
+              {isTracking ? "TRACKING" : "LIVE"}
             </Text>
           </View>
           <Text style={[styles.exerciseName, { color: theme.text, fontFamily: "Inter_700Bold" }]} numberOfLines={1}>
@@ -210,28 +272,28 @@ export default function WorkoutActiveScreen() {
           <Text style={[styles.statNum, { color: theme.text, fontFamily: "Inter_700Bold" }]}>
             {activeWorkout.sets.length}
           </Text>
-          <Text style={[styles.statLbl, { color: theme.textTertiary, fontFamily: "Inter_400Regular" }]}>
-            Sets
-          </Text>
+          <Text style={[styles.statLbl, { color: theme.textTertiary, fontFamily: "Inter_400Regular" }]}>Sets</Text>
         </View>
         <View style={[styles.statDivider, { backgroundColor: theme.border }]} />
         <View style={styles.statItem}>
           <Text style={[styles.statNum, { color: theme.text, fontFamily: "Inter_700Bold" }]}>
             {activeWorkout.sets.reduce((s, set) => s + set.reps, 0)}
           </Text>
-          <Text style={[styles.statLbl, { color: theme.textTertiary, fontFamily: "Inter_400Regular" }]}>
-            Reps
-          </Text>
+          <Text style={[styles.statLbl, { color: theme.textTertiary, fontFamily: "Inter_400Regular" }]}>Reps</Text>
         </View>
-        <View style={[styles.statDivider, { backgroundColor: theme.border }]} />
-        <View style={styles.statItem}>
-          <Text style={[styles.statNum, { color: theme.text, fontFamily: "Inter_700Bold" }]}>
-            {displayVol > 0 ? displayVol.toLocaleString() : "—"}
-          </Text>
-          <Text style={[styles.statLbl, { color: theme.textTertiary, fontFamily: "Inter_400Regular" }]}>
-            {weightUnit} vol
-          </Text>
-        </View>
+        {!isBodyweight && (
+          <>
+            <View style={[styles.statDivider, { backgroundColor: theme.border }]} />
+            <View style={styles.statItem}>
+              <Text style={[styles.statNum, { color: theme.text, fontFamily: "Inter_700Bold" }]}>
+                {displayVol > 0 ? displayVol.toLocaleString() : "—"}
+              </Text>
+              <Text style={[styles.statLbl, { color: theme.textTertiary, fontFamily: "Inter_400Regular" }]}>
+                {weightUnit} vol
+              </Text>
+            </View>
+          </>
+        )}
       </View>
 
       {/* Rest timer */}
@@ -245,9 +307,7 @@ export default function WorkoutActiveScreen() {
             onPress={() => { setIsResting(false); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
             style={[styles.skipRestBtn, { backgroundColor: `${accent}20` }]}
           >
-            <Text style={[styles.skipRestText, { color: accent, fontFamily: "Inter_500Medium" }]}>
-              Skip
-            </Text>
+            <Text style={[styles.skipRestText, { color: accent, fontFamily: "Inter_500Medium" }]}>Skip</Text>
           </Pressable>
         </View>
       )}
@@ -263,14 +323,14 @@ export default function WorkoutActiveScreen() {
           <View style={styles.noSets}>
             <Ionicons name="layers-outline" size={40} color={theme.textTertiary} />
             <Text style={[styles.noSetsText, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
-              Log your first set below
+              Press Start Set and move your phone
             </Text>
           </View>
         ) : (
           <>
             <View style={[styles.setsDivider, { borderColor: theme.border }]}>
               <Text style={[styles.setsDividerLabel, { backgroundColor: theme.background, color: theme.textTertiary, fontFamily: "Inter_500Medium" }]}>
-                Sets
+                Completed Sets
               </Text>
             </View>
             {activeWorkout.sets.map(set => (
@@ -283,10 +343,10 @@ export default function WorkoutActiveScreen() {
             ))}
           </>
         )}
-        <View style={{ height: 240 }} />
+        <View style={{ height: 260 }} />
       </ScrollView>
 
-      {/* Input panel */}
+      {/* Bottom panel */}
       <Animated.View
         style={[
           styles.inputPanel,
@@ -298,89 +358,136 @@ export default function WorkoutActiveScreen() {
           }
         ]}
       >
-        {/* Apple Watch indicator */}
-        <View style={[styles.watchRow, { backgroundColor: `rgba(0,122,255,0.08)`, borderColor: "rgba(0,122,255,0.2)" }]}>
-          <Ionicons name="watch-outline" size={14} color="#007AFF" />
-          <Text style={[styles.watchText, { color: "#007AFF", fontFamily: "Inter_400Regular" }]}>
-            Apple Watch counting reps automatically
-          </Text>
-        </View>
-
-        <View style={styles.inputRow}>
-          {/* Weight */}
-          <View style={styles.inputGroup}>
-            <Text style={[styles.inputLabel, { color: theme.textTertiary, fontFamily: "Inter_500Medium" }]}>
-              WEIGHT ({weightUnit})
-            </Text>
-            <View style={styles.stepper}>
-              <Pressable
-                style={[styles.stepBtn, { backgroundColor: theme.backgroundTertiary }]}
-                onPress={() => adjustWeight(-1)}
-              >
-                <Ionicons name="remove" size={18} color={theme.text} />
-              </Pressable>
-              <TextInput
-                value={weight}
-                onChangeText={setWeight}
-                keyboardType="numeric"
-                style={[styles.numInput, { color: theme.text, borderColor: theme.border, fontFamily: "Inter_600SemiBold" }]}
-                selectTextOnFocus
-              />
-              <Pressable
-                style={[styles.stepBtn, { backgroundColor: theme.backgroundTertiary }]}
-                onPress={() => adjustWeight(1)}
-              >
-                <Ionicons name="add" size={18} color={theme.text} />
-              </Pressable>
+        {isTracking ? (
+          /* ── ACTIVE TRACKING VIEW ── */
+          <>
+            <View style={styles.trackingHeader}>
+              <Text style={[styles.trackingLabel, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
+                Move your phone · reps detected automatically
+              </Text>
             </View>
-          </View>
 
-          {/* Reps */}
-          <View style={styles.inputGroup}>
-            <Text style={[styles.inputLabel, { color: theme.textTertiary, fontFamily: "Inter_500Medium" }]}>
-              REPS
-            </Text>
-            <View style={styles.stepper}>
-              <Pressable
-                style={[styles.stepBtn, { backgroundColor: theme.backgroundTertiary }]}
-                onPress={() => adjustReps(-1)}
+            {/* Big rep counter */}
+            <View style={styles.repCounterRow}>
+              <Animated.Text
+                style={[
+                  styles.repCounterNum,
+                  { color: currentReps >= targetReps ? "#34C759" : accent, fontFamily: "Inter_700Bold",
+                    transform: [{ scale: repFlashAnim }] }
+                ]}
               >
-                <Ionicons name="remove" size={18} color={theme.text} />
-              </Pressable>
-              <TextInput
-                value={reps}
-                onChangeText={setReps}
-                keyboardType="numeric"
-                style={[styles.numInput, { color: theme.text, borderColor: theme.border, fontFamily: "Inter_600SemiBold" }]}
-                selectTextOnFocus
-              />
-              <Pressable
-                style={[styles.stepBtn, { backgroundColor: theme.backgroundTertiary }]}
-                onPress={() => adjustReps(1)}
-              >
-                <Ionicons name="add" size={18} color={theme.text} />
-              </Pressable>
+                {currentReps}
+              </Animated.Text>
+              <Text style={[styles.repCounterSlash, { color: theme.textTertiary, fontFamily: "Inter_400Regular" }]}>
+                /{targetReps}
+              </Text>
             </View>
-          </View>
-        </View>
 
-        <Pressable
-          style={({ pressed }) => [
-            styles.logBtn,
-            {
-              backgroundColor: accent,
-              opacity: isLogging || isResting ? 0.6 : pressed ? 0.9 : 1,
-              transform: [{ scale: pressed ? 0.98 : 1 }]
-            }
-          ]}
-          onPress={handleLogSet}
-          disabled={isLogging}
-        >
-          <Ionicons name="add-circle" size={22} color="#fff" />
-          <Text style={[styles.logBtnText, { fontFamily: "Inter_700Bold" }]}>
-            {isResting ? `Log Set ${activeWorkout.sets.length + 1}` : `Log Set ${activeWorkout.sets.length + 1}`}
-          </Text>
-        </Pressable>
+            {/* Progress bar */}
+            <View style={[styles.progressTrack, { backgroundColor: theme.backgroundTertiary }]}>
+              <Animated.View
+                style={[
+                  styles.progressFill,
+                  {
+                    backgroundColor: currentReps >= targetReps ? "#34C759" : accent,
+                    width: `${Math.round(progressPct * 100)}%` as any,
+                  }
+                ]}
+              />
+            </View>
+
+            <Pressable
+              style={({ pressed }) => [
+                styles.stopBtn,
+                { backgroundColor: theme.backgroundTertiary, opacity: pressed ? 0.8 : 1 }
+              ]}
+              onPress={() => stopTracking()}
+            >
+              <Ionicons name="stop-circle" size={20} color={theme.text} />
+              <Text style={[styles.stopBtnText, { color: theme.text, fontFamily: "Inter_600SemiBold" }]}>
+                Stop & Log {currentReps} Rep{currentReps !== 1 ? "s" : ""}
+              </Text>
+            </Pressable>
+          </>
+        ) : (
+          /* ── SETUP VIEW ── */
+          <>
+            <View style={styles.setupRow}>
+              {/* Weight — hidden for bodyweight exercises */}
+              {!isBodyweight && (
+                <View style={styles.inputGroup}>
+                  <Text style={[styles.inputLabel, { color: theme.textTertiary, fontFamily: "Inter_500Medium" }]}>
+                    WEIGHT ({weightUnit})
+                  </Text>
+                  <View style={styles.stepper}>
+                    <Pressable
+                      style={[styles.stepBtn, { backgroundColor: theme.backgroundTertiary }]}
+                      onPress={() => adjustWeight(-1)}
+                    >
+                      <Ionicons name="remove" size={18} color={theme.text} />
+                    </Pressable>
+                    <Text style={[styles.stepValue, { color: theme.text, fontFamily: "Inter_600SemiBold", borderColor: theme.border }]}>
+                      {weight % 1 === 0 ? weight : weight.toFixed(1)}
+                    </Text>
+                    <Pressable
+                      style={[styles.stepBtn, { backgroundColor: theme.backgroundTertiary }]}
+                      onPress={() => adjustWeight(1)}
+                    >
+                      <Ionicons name="add" size={18} color={theme.text} />
+                    </Pressable>
+                  </View>
+                </View>
+              )}
+
+              {/* Target reps */}
+              <View style={[styles.inputGroup, isBodyweight && styles.inputGroupFull]}>
+                <Text style={[styles.inputLabel, { color: theme.textTertiary, fontFamily: "Inter_500Medium" }]}>
+                  TARGET REPS
+                </Text>
+                <View style={styles.stepper}>
+                  <Pressable
+                    style={[styles.stepBtn, { backgroundColor: theme.backgroundTertiary }]}
+                    onPress={() => adjustTargetReps(-1)}
+                  >
+                    <Ionicons name="remove" size={18} color={theme.text} />
+                  </Pressable>
+                  <Text style={[styles.stepValue, { color: theme.text, fontFamily: "Inter_600SemiBold", borderColor: theme.border }]}>
+                    {targetReps}
+                  </Text>
+                  <Pressable
+                    style={[styles.stepBtn, { backgroundColor: theme.backgroundTertiary }]}
+                    onPress={() => adjustTargetReps(1)}
+                  >
+                    <Ionicons name="add" size={18} color={theme.text} />
+                  </Pressable>
+                </View>
+              </View>
+            </View>
+
+            <Pressable
+              style={({ pressed }) => [
+                styles.startBtn,
+                {
+                  backgroundColor: isResting ? theme.backgroundTertiary : accent,
+                  opacity: pressed ? 0.9 : 1,
+                  transform: [{ scale: pressed ? 0.98 : 1 }],
+                }
+              ]}
+              onPress={startTracking}
+            >
+              <Ionicons name="play-circle" size={22} color={isResting ? theme.textSecondary : "#fff"} />
+              <Text style={[styles.startBtnText, { color: isResting ? theme.textSecondary : "#fff", fontFamily: "Inter_700Bold" }]}>
+                {isResting
+                  ? `Resting… (${formatTime(restTimer)})`
+                  : `Start Set ${activeWorkout.sets.length + 1}`}
+              </Text>
+            </Pressable>
+
+            <Text style={[styles.accelHint, { color: theme.textTertiary, fontFamily: "Inter_400Regular" }]}>
+              Phone accelerometer counts reps · set down when not active
+            </Text>
+          </>
+        )}
       </Animated.View>
     </View>
   );
@@ -405,11 +512,7 @@ const styles = StyleSheet.create({
   liveText: { fontSize: 11, letterSpacing: 1 },
   exerciseName: { fontSize: 26 },
   timerText: { fontSize: 14, fontVariant: ["tabular-nums"] },
-  doneBtn: {
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-  },
+  doneBtn: { borderRadius: 12, paddingHorizontal: 16, paddingVertical: 10 },
   doneBtnText: { fontSize: 15 },
   statsRow: {
     flexDirection: "row",
@@ -442,7 +545,7 @@ const styles = StyleSheet.create({
   setsScroll: { flex: 1 },
   setsList: { paddingHorizontal: 20, paddingTop: 8 },
   noSets: { alignItems: "center", paddingTop: 40, gap: 10 },
-  noSetsText: { fontSize: 14 },
+  noSetsText: { fontSize: 14, textAlign: "center" },
   setsDivider: {
     borderTopWidth: 1,
     alignItems: "center",
@@ -462,35 +565,26 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     paddingHorizontal: 20,
-    paddingTop: 14,
+    paddingTop: 16,
     borderTopWidth: 1,
     gap: 12,
   },
-  watchRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 7,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 10,
-    borderWidth: 1,
-  },
-  watchText: { fontSize: 12 },
-  inputRow: {
+  setupRow: {
     flexDirection: "row",
     gap: 14,
   },
   inputGroup: { flex: 1, gap: 7 },
+  inputGroupFull: { flex: 1 },
   inputLabel: { fontSize: 10, letterSpacing: 0.5 },
   stepper: { flexDirection: "row", alignItems: "center", gap: 6 },
   stepBtn: {
-    width: 38,
-    height: 42,
+    width: 40,
+    height: 44,
     borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
   },
-  numInput: {
+  stepValue: {
     flex: 1,
     borderWidth: 1,
     borderRadius: 10,
@@ -498,7 +592,7 @@ const styles = StyleSheet.create({
     fontSize: 20,
     paddingVertical: 10,
   },
-  logBtn: {
+  startBtn: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
@@ -506,5 +600,40 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     paddingVertical: 15,
   },
-  logBtnText: { color: "#fff", fontSize: 17 },
+  startBtnText: { fontSize: 17 },
+  accelHint: {
+    fontSize: 11,
+    textAlign: "center",
+    marginTop: -4,
+  },
+  trackingHeader: {
+    alignItems: "center",
+  },
+  trackingLabel: { fontSize: 12, textAlign: "center" },
+  repCounterRow: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    justifyContent: "center",
+    gap: 4,
+  },
+  repCounterNum: { fontSize: 72, lineHeight: 76 },
+  repCounterSlash: { fontSize: 28, marginBottom: 10 },
+  progressTrack: {
+    height: 6,
+    borderRadius: 3,
+    overflow: "hidden",
+  },
+  progressFill: {
+    height: 6,
+    borderRadius: 3,
+  },
+  stopBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    borderRadius: 14,
+    paddingVertical: 14,
+  },
+  stopBtnText: { fontSize: 16 },
 });
