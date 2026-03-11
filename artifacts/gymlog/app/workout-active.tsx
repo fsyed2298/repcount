@@ -18,6 +18,15 @@ import { useTheme } from "@/constants/theme";
 import { useWorkout } from "@/context/workout";
 import { SetRow } from "@/components/ui/SetRow";
 
+let WatchConnectivity: any = null;
+if (Platform.OS === "ios") {
+  try {
+    WatchConnectivity = require("react-native-watch-connectivity").default;
+  } catch {
+    WatchConnectivity = null;
+  }
+}
+
 function kgToLbs(kg: number) {
   return Math.round(kg * 2.2046 * 10) / 10;
 }
@@ -51,6 +60,8 @@ export default function WorkoutActiveScreen() {
   const [isTracking, setIsTracking] = useState(false);
   const [currentReps, setCurrentReps] = useState(0);
   const [lastAddedSetId, setLastAddedSetId] = useState<string | null>(null);
+  const [watchReachable, setWatchReachable] = useState(false);
+  const [usingWatch, setUsingWatch] = useState(false);
 
   const scrollRef = useRef<ScrollView>(null);
   const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -60,11 +71,23 @@ export default function WorkoutActiveScreen() {
   const accelWindowRef = useRef<number[]>([]);
   const lastRepTimeRef = useRef(0);
   const accelSubRef = useRef<ReturnType<typeof Accelerometer.addListener> | null>(null);
+  const watchMsgSubRef = useRef<any>(null);
   const currentRepsRef = useRef(0);
   const targetRepsRef = useRef(targetReps);
   const isLoggingRef = useRef(false);
+  const usingWatchRef = useRef(false);
 
   useEffect(() => { targetRepsRef.current = targetReps; }, [targetReps]);
+  useEffect(() => { usingWatchRef.current = usingWatch; }, [usingWatch]);
+
+  useEffect(() => {
+    if (!WatchConnectivity) return;
+    WatchConnectivity.getReachability().then((r: boolean) => setWatchReachable(r));
+    const sub = WatchConnectivity.watchEvents.on("reachability", (r: boolean) => {
+      setWatchReachable(r);
+    });
+    return () => sub?.();
+  }, []);
 
   useEffect(() => {
     timerRef.current = setInterval(() => setTimer(t => t + 1), 1000);
@@ -89,6 +112,16 @@ export default function WorkoutActiveScreen() {
     }
     return () => { if (restTimerRef.current) clearInterval(restTimerRef.current); };
   }, [isResting]);
+
+  const flashRep = useCallback((count: number) => {
+    setCurrentReps(count);
+    currentRepsRef.current = count;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    Animated.sequence([
+      Animated.timing(repFlashAnim, { toValue: 1.15, duration: 100, useNativeDriver: true }),
+      Animated.timing(repFlashAnim, { toValue: 1, duration: 100, useNativeDriver: true }),
+    ]).start();
+  }, [repFlashAnim]);
 
   const handleLogSet = useCallback(async (repsToLog: number) => {
     if (!activeWorkout || isLoggingRef.current) return;
@@ -116,9 +149,20 @@ export default function WorkoutActiveScreen() {
 
   const stopTracking = useCallback(async (repsToLog?: number) => {
     setIsTracking(false);
-    accelSubRef.current?.remove();
-    accelSubRef.current = null;
-    Accelerometer.setUpdateInterval(1000);
+
+    if (usingWatchRef.current && WatchConnectivity) {
+      try {
+        WatchConnectivity.sendMessage({ type: "stopTracking" }, () => {}, () => {});
+      } catch {}
+      watchMsgSubRef.current?.();
+      watchMsgSubRef.current = null;
+    } else {
+      accelSubRef.current?.remove();
+      accelSubRef.current = null;
+      Accelerometer.setUpdateInterval(1000);
+    }
+
+    setUsingWatch(false);
 
     const reps = repsToLog ?? currentRepsRef.current;
     setCurrentReps(0);
@@ -130,16 +174,37 @@ export default function WorkoutActiveScreen() {
     }
   }, [handleLogSet]);
 
-  const startTracking = useCallback(() => {
-    if (isResting) {
-      Alert.alert("Still resting", "Wait for rest timer to finish, or skip it first.");
-      return;
-    }
+  const startTrackingWithWatch = useCallback(() => {
+    if (!WatchConnectivity) return false;
+    setUsingWatch(true);
+    usingWatchRef.current = true;
+
+    WatchConnectivity.sendMessage(
+      { type: "startTracking", targetReps: targetRepsRef.current },
+      () => {},
+      () => {}
+    );
+
+    watchMsgSubRef.current = WatchConnectivity.watchEvents.on("message", (msg: any) => {
+      if (msg.type === "rep") {
+        flashRep(msg.count);
+        if (msg.count >= targetRepsRef.current) {
+          stopTracking(msg.count);
+        }
+      } else if (msg.type === "setComplete") {
+        stopTracking(msg.count);
+      }
+    });
+
+    return true;
+  }, [flashRep, stopTracking]);
+
+  const startTrackingWithPhone = useCallback(() => {
+    setUsingWatch(false);
+    usingWatchRef.current = false;
+
     accelWindowRef.current = [];
     lastRepTimeRef.current = 0;
-    currentRepsRef.current = 0;
-    setCurrentReps(0);
-    setIsTracking(true);
 
     Accelerometer.setUpdateInterval(80);
     accelSubRef.current = Accelerometer.addListener(({ x, y, z }) => {
@@ -156,26 +221,36 @@ export default function WorkoutActiveScreen() {
 
       if (deviation > ACCEL_THRESHOLD && now - lastRepTimeRef.current > MIN_REP_MS) {
         lastRepTimeRef.current = now;
-        currentRepsRef.current += 1;
-        const newCount = currentRepsRef.current;
-        setCurrentReps(newCount);
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-
-        Animated.sequence([
-          Animated.timing(repFlashAnim, { toValue: 1.15, duration: 100, useNativeDriver: true }),
-          Animated.timing(repFlashAnim, { toValue: 1, duration: 100, useNativeDriver: true }),
-        ]).start();
+        const newCount = currentRepsRef.current + 1;
+        flashRep(newCount);
 
         if (newCount >= targetRepsRef.current) {
           stopTracking(newCount);
         }
       }
     });
-  }, [isResting, stopTracking, repFlashAnim]);
+  }, [flashRep, stopTracking]);
+
+  const startTracking = useCallback(() => {
+    if (isResting) {
+      Alert.alert("Still resting", "Wait for rest timer to finish, or skip it first.");
+      return;
+    }
+    currentRepsRef.current = 0;
+    setCurrentReps(0);
+    setIsTracking(true);
+
+    if (watchReachable && WatchConnectivity) {
+      startTrackingWithWatch();
+    } else {
+      startTrackingWithPhone();
+    }
+  }, [isResting, watchReachable, startTrackingWithWatch, startTrackingWithPhone]);
 
   useEffect(() => {
     return () => {
       accelSubRef.current?.remove();
+      watchMsgSubRef.current?.();
     };
   }, []);
 
@@ -238,6 +313,11 @@ export default function WorkoutActiveScreen() {
   const displayVol = weightUnit === "lbs" ? kgToLbs(totalVol) : Math.round(totalVol);
   const progressPct = isTracking && targetReps > 0 ? Math.min(currentReps / targetReps, 1) : 0;
 
+  const trackingSource = usingWatch ? "Apple Watch" : "phone";
+  const trackingHint = usingWatch
+    ? "Apple Watch is counting reps"
+    : "Move your phone · reps detected automatically";
+
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
       {/* Header */}
@@ -248,6 +328,12 @@ export default function WorkoutActiveScreen() {
             <Text style={[styles.liveText, { color: isTracking ? "#34C759" : accent, fontFamily: "Inter_600SemiBold" }]}>
               {isTracking ? "TRACKING" : "LIVE"}
             </Text>
+            {watchReachable && !isTracking && (
+              <View style={[styles.watchBadge, { backgroundColor: `${accent}18`, borderColor: `${accent}30` }]}>
+                <Ionicons name="watch-outline" size={10} color={accent} />
+                <Text style={[styles.watchBadgeText, { color: accent, fontFamily: "Inter_500Medium" }]}>Watch</Text>
+              </View>
+            )}
           </View>
           <Text style={[styles.exerciseName, { color: theme.text, fontFamily: "Inter_700Bold" }]} numberOfLines={1}>
             {activeWorkout.exerciseName}
@@ -323,7 +409,9 @@ export default function WorkoutActiveScreen() {
           <View style={styles.noSets}>
             <Ionicons name="layers-outline" size={40} color={theme.textTertiary} />
             <Text style={[styles.noSetsText, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
-              Press Start Set and move your phone
+              {watchReachable
+                ? "Press Start Set · reps counted on your Watch"
+                : "Press Start Set and move your phone"}
             </Text>
           </View>
         ) : (
@@ -359,15 +447,21 @@ export default function WorkoutActiveScreen() {
         ]}
       >
         {isTracking ? (
-          /* ── ACTIVE TRACKING VIEW ── */
           <>
             <View style={styles.trackingHeader}>
               <Text style={[styles.trackingLabel, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
-                Move your phone · reps detected automatically
+                {trackingHint}
               </Text>
+              {usingWatch && (
+                <View style={[styles.watchActiveBadge, { backgroundColor: `${accent}15` }]}>
+                  <Ionicons name="watch" size={12} color={accent} />
+                  <Text style={[styles.watchActiveText, { color: accent, fontFamily: "Inter_600SemiBold" }]}>
+                    Apple Watch
+                  </Text>
+                </View>
+              )}
             </View>
 
-            {/* Big rep counter */}
             <View style={styles.repCounterRow}>
               <Animated.Text
                 style={[
@@ -383,7 +477,6 @@ export default function WorkoutActiveScreen() {
               </Text>
             </View>
 
-            {/* Progress bar */}
             <View style={[styles.progressTrack, { backgroundColor: theme.backgroundTertiary }]}>
               <Animated.View
                 style={[
@@ -410,10 +503,8 @@ export default function WorkoutActiveScreen() {
             </Pressable>
           </>
         ) : (
-          /* ── SETUP VIEW ── */
           <>
             <View style={styles.setupRow}>
-              {/* Weight — hidden for bodyweight exercises */}
               {!isBodyweight && (
                 <View style={styles.inputGroup}>
                   <Text style={[styles.inputLabel, { color: theme.textTertiary, fontFamily: "Inter_500Medium" }]}>
@@ -439,7 +530,6 @@ export default function WorkoutActiveScreen() {
                 </View>
               )}
 
-              {/* Target reps */}
               <View style={[styles.inputGroup, isBodyweight && styles.inputGroupFull]}>
                 <Text style={[styles.inputLabel, { color: theme.textTertiary, fontFamily: "Inter_500Medium" }]}>
                   TARGET REPS
@@ -475,7 +565,10 @@ export default function WorkoutActiveScreen() {
               ]}
               onPress={startTracking}
             >
-              <Ionicons name="play-circle" size={22} color={isResting ? theme.textSecondary : "#fff"} />
+              {watchReachable
+                ? <Ionicons name="watch" size={22} color={isResting ? theme.textSecondary : "#fff"} />
+                : <Ionicons name="play-circle" size={22} color={isResting ? theme.textSecondary : "#fff"} />
+              }
               <Text style={[styles.startBtnText, { color: isResting ? theme.textSecondary : "#fff", fontFamily: "Inter_700Bold" }]}>
                 {isResting
                   ? `Resting… (${formatTime(restTimer)})`
@@ -484,7 +577,9 @@ export default function WorkoutActiveScreen() {
             </Pressable>
 
             <Text style={[styles.accelHint, { color: theme.textTertiary, fontFamily: "Inter_400Regular" }]}>
-              Phone accelerometer counts reps · set down when not active
+              {watchReachable
+                ? "Apple Watch will count reps · phone is fallback"
+                : "Phone accelerometer counts reps · set down when not active"}
             </Text>
           </>
         )}
@@ -510,6 +605,16 @@ const styles = StyleSheet.create({
   liveRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   liveDot: { width: 8, height: 8, borderRadius: 4 },
   liveText: { fontSize: 11, letterSpacing: 1 },
+  watchBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    borderWidth: 1,
+  },
+  watchBadgeText: { fontSize: 10 },
   exerciseName: { fontSize: 26 },
   timerText: { fontSize: 14, fontVariant: ["tabular-nums"] },
   doneBtn: { borderRadius: 12, paddingHorizontal: 16, paddingVertical: 10 },
@@ -608,8 +713,18 @@ const styles = StyleSheet.create({
   },
   trackingHeader: {
     alignItems: "center",
+    gap: 6,
   },
   trackingLabel: { fontSize: 12, textAlign: "center" },
+  watchActiveBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 20,
+  },
+  watchActiveText: { fontSize: 11 },
   repCounterRow: {
     flexDirection: "row",
     alignItems: "flex-end",

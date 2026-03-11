@@ -57,6 +57,7 @@
   },
   "dependencies": {
     "expo-camera": "^55.0.9",
-    "expo-sensors": "^55.0.8"
+    "expo-sensors": "^55.0.8",
+    "react-native-watch-connectivity": "^1.1.0"
   }
 }
