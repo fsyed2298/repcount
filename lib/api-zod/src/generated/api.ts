@@ -14,3 +14,196 @@ import * as zod from "zod";
 export const HealthCheckResponse = zod.object({
   status: zod.string(),
 });
+
+/**
+ * Returns a list of popular exercises grouped by category
+ * @summary List popular exercises
+ */
+export const ListExercisesResponse = zod.object({
+  exercises: zod.array(
+    zod.object({
+      id: zod.string(),
+      name: zod.string(),
+      category: zod.enum([
+        "chest",
+        "back",
+        "shoulders",
+        "arms",
+        "legs",
+        "core",
+        "full_body",
+      ]),
+      equipment: zod.enum([
+        "dumbbell",
+        "barbell",
+        "machine",
+        "cable",
+        "bodyweight",
+      ]),
+      muscleGroup: zod.string(),
+      sfSymbol: zod.string().optional(),
+    }),
+  ),
+});
+
+/**
+ * @summary List all workouts
+ */
+export const ListWorkoutsResponse = zod.object({
+  workouts: zod.array(
+    zod.object({
+      id: zod.string(),
+      exerciseId: zod.string(),
+      exerciseName: zod.string(),
+      detectedWeightKg: zod.number().nullish(),
+      weightUnit: zod.enum(["kg", "lbs"]),
+      startedAt: zod.date(),
+      completedAt: zod.date().nullish(),
+      sets: zod.array(
+        zod.object({
+          id: zod.string(),
+          workoutId: zod.string(),
+          setNumber: zod.number(),
+          reps: zod.number(),
+          weightKg: zod.number(),
+          completedAt: zod.date(),
+        }),
+      ),
+      totalVolume: zod.number().nullish(),
+      notes: zod.string().nullish(),
+    }),
+  ),
+});
+
+/**
+ * @summary Start a new workout session
+ */
+export const CreateWorkoutBody = zod.object({
+  exerciseId: zod.string(),
+  exerciseName: zod.string(),
+  detectedWeightKg: zod.number().nullish(),
+  weightUnit: zod.enum(["kg", "lbs"]),
+  notes: zod.string().nullish(),
+});
+
+/**
+ * @summary Get a workout session
+ */
+export const GetWorkoutParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const GetWorkoutResponse = zod.object({
+  id: zod.string(),
+  exerciseId: zod.string(),
+  exerciseName: zod.string(),
+  detectedWeightKg: zod.number().nullish(),
+  weightUnit: zod.enum(["kg", "lbs"]),
+  startedAt: zod.date(),
+  completedAt: zod.date().nullish(),
+  sets: zod.array(
+    zod.object({
+      id: zod.string(),
+      workoutId: zod.string(),
+      setNumber: zod.number(),
+      reps: zod.number(),
+      weightKg: zod.number(),
+      completedAt: zod.date(),
+    }),
+  ),
+  totalVolume: zod.number().nullish(),
+  notes: zod.string().nullish(),
+});
+
+/**
+ * @summary Update a workout session (e.g., complete it)
+ */
+export const UpdateWorkoutParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const UpdateWorkoutBody = zod.object({
+  completedAt: zod.date().nullish(),
+  notes: zod.string().nullish(),
+  totalVolume: zod.number().nullish(),
+});
+
+export const UpdateWorkoutResponse = zod.object({
+  id: zod.string(),
+  exerciseId: zod.string(),
+  exerciseName: zod.string(),
+  detectedWeightKg: zod.number().nullish(),
+  weightUnit: zod.enum(["kg", "lbs"]),
+  startedAt: zod.date(),
+  completedAt: zod.date().nullish(),
+  sets: zod.array(
+    zod.object({
+      id: zod.string(),
+      workoutId: zod.string(),
+      setNumber: zod.number(),
+      reps: zod.number(),
+      weightKg: zod.number(),
+      completedAt: zod.date(),
+    }),
+  ),
+  totalVolume: zod.number().nullish(),
+  notes: zod.string().nullish(),
+});
+
+/**
+ * @summary Delete a workout session
+ */
+export const DeleteWorkoutParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+/**
+ * @summary Add a set to a workout
+ */
+export const AddSetParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const AddSetBody = zod.object({
+  reps: zod.number(),
+  weightKg: zod.number(),
+  setNumber: zod.number(),
+});
+
+/**
+ * Analyzes an image to detect weight amount (in lbs or kg) from a dumbbell or weight stack
+ * @summary Detect weight from image
+ */
+export const detectWeightBodyUnitDefault = `lbs`;
+
+export const DetectWeightBody = zod.object({
+  imageBase64: zod.string().describe("Base64-encoded image data"),
+  unit: zod.enum(["kg", "lbs"]).default(detectWeightBodyUnitDefault),
+});
+
+export const DetectWeightResponse = zod.object({
+  detected: zod.boolean(),
+  weightKg: zod.number().nullish(),
+  weightLbs: zod.number().nullish(),
+  confidence: zod.enum(["high", "medium", "low"]).nullish(),
+  description: zod.string().nullish(),
+});
+
+/**
+ * Attempts to identify the exercise being performed based on image and context
+ * @summary Detect exercise type from image
+ */
+export const DetectExerciseBody = zod.object({
+  imageBase64: zod.string().nullish(),
+  context: zod
+    .string()
+    .nullish()
+    .describe("Additional context about the exercise"),
+});
+
+export const DetectExerciseResponse = zod.object({
+  detected: zod.boolean(),
+  exerciseId: zod.string().nullish(),
+  exerciseName: zod.string().nullish(),
+  confidence: zod.enum(["high", "medium", "low"]).nullish(),
+});

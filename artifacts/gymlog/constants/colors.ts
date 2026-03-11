@@ -1,0 +1,45 @@
+const accent = "#FF5722"; // Deep orange — energetic, athletic
+const accentLight = "#FF8A65";
+const accentDark = "#E64A19";
+
+export default {
+  accent,
+  accentLight,
+  accentDark,
+  light: {
+    text: "#0D0D0D",
+    textSecondary: "#6B6B6B",
+    textTertiary: "#ABABAB",
+    background: "#F7F7F7",
+    backgroundSecondary: "#FFFFFF",
+    backgroundTertiary: "#EFEFEF",
+    tint: accent,
+    tabIconDefault: "#ABABAB",
+    tabIconSelected: accent,
+    border: "#E8E8E8",
+    borderStrong: "#D0D0D0",
+    card: "#FFFFFF",
+    success: "#34C759",
+    warning: "#FF9F0A",
+    destructive: "#FF3B30",
+    shadow: "rgba(0, 0, 0, 0.08)",
+  },
+  dark: {
+    text: "#F5F5F5",
+    textSecondary: "#A0A0A0",
+    textTertiary: "#6B6B6B",
+    background: "#0D0D0D",
+    backgroundSecondary: "#1A1A1A",
+    backgroundTertiary: "#242424",
+    tint: accent,
+    tabIconDefault: "#6B6B6B",
+    tabIconSelected: accent,
+    border: "#2A2A2A",
+    borderStrong: "#3A3A3A",
+    card: "#1A1A1A",
+    success: "#30D158",
+    warning: "#FF9F0A",
+    destructive: "#FF453A",
+    shadow: "rgba(0, 0, 0, 0.4)",
+  },
+};

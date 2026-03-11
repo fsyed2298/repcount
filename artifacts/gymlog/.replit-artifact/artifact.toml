@@ -1,0 +1,27 @@
+kind = "mobile"
+previewPath = "/"
+title = "RepCount - Smart Gym Tracker"
+version = "1.0.0"
+id = "artifacts/gymlog"
+router = "expo-domain"
+
+[[integratedSkills]]
+name = "expo"
+version = "1.0.0"
+
+[[services]]
+ensurePreviewReachable = "/status"
+localPort = 21348
+name = "expo"
+paths = ["/"]
+
+[services.development]
+run = "pnpm --filter @workspace/gymlog run dev"
+
+[services.env]
+PORT = "21348"
+BASE_PATH = "/"
+
+[services.production]
+build = ["pnpm", "--filter", "@workspace/gymlog", "run", "build"]
+run = ["pnpm", "--filter", "@workspace/gymlog", "run", "serve"]

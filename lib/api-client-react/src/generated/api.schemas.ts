@@ -8,3 +8,157 @@
 export interface HealthStatus {
   status: string;
 }
+
+export type ExerciseCategory =
+  (typeof ExerciseCategory)[keyof typeof ExerciseCategory];
+
+export const ExerciseCategory = {
+  chest: "chest",
+  back: "back",
+  shoulders: "shoulders",
+  arms: "arms",
+  legs: "legs",
+  core: "core",
+  full_body: "full_body",
+} as const;
+
+export type ExerciseEquipment =
+  (typeof ExerciseEquipment)[keyof typeof ExerciseEquipment];
+
+export const ExerciseEquipment = {
+  dumbbell: "dumbbell",
+  barbell: "barbell",
+  machine: "machine",
+  cable: "cable",
+  bodyweight: "bodyweight",
+} as const;
+
+export interface Exercise {
+  id: string;
+  name: string;
+  category: ExerciseCategory;
+  equipment: ExerciseEquipment;
+  muscleGroup: string;
+  sfSymbol?: string;
+}
+
+export type WorkoutSessionWeightUnit =
+  (typeof WorkoutSessionWeightUnit)[keyof typeof WorkoutSessionWeightUnit];
+
+export const WorkoutSessionWeightUnit = {
+  kg: "kg",
+  lbs: "lbs",
+} as const;
+
+export interface WorkoutSet {
+  id: string;
+  workoutId: string;
+  setNumber: number;
+  reps: number;
+  weightKg: number;
+  completedAt: string;
+}
+
+export interface WorkoutSession {
+  id: string;
+  exerciseId: string;
+  exerciseName: string;
+  detectedWeightKg?: number | null;
+  weightUnit: WorkoutSessionWeightUnit;
+  startedAt: string;
+  completedAt?: string | null;
+  sets: WorkoutSet[];
+  totalVolume?: number | null;
+  notes?: string | null;
+}
+
+export type CreateWorkoutBodyWeightUnit =
+  (typeof CreateWorkoutBodyWeightUnit)[keyof typeof CreateWorkoutBodyWeightUnit];
+
+export const CreateWorkoutBodyWeightUnit = {
+  kg: "kg",
+  lbs: "lbs",
+} as const;
+
+export interface CreateWorkoutBody {
+  exerciseId: string;
+  exerciseName: string;
+  detectedWeightKg?: number | null;
+  weightUnit: CreateWorkoutBodyWeightUnit;
+  notes?: string | null;
+}
+
+export interface UpdateWorkoutBody {
+  completedAt?: string | null;
+  notes?: string | null;
+  totalVolume?: number | null;
+}
+
+export interface AddSetBody {
+  reps: number;
+  weightKg: number;
+  setNumber: number;
+}
+
+export type DetectWeightBodyUnit =
+  (typeof DetectWeightBodyUnit)[keyof typeof DetectWeightBodyUnit];
+
+export const DetectWeightBodyUnit = {
+  kg: "kg",
+  lbs: "lbs",
+} as const;
+
+export interface DetectWeightBody {
+  /** Base64-encoded image data */
+  imageBase64: string;
+  unit?: DetectWeightBodyUnit;
+}
+
+export type DetectWeightResultConfidence =
+  | (typeof DetectWeightResultConfidence)[keyof typeof DetectWeightResultConfidence]
+  | null;
+
+export const DetectWeightResultConfidence = {
+  high: "high",
+  medium: "medium",
+  low: "low",
+} as const;
+
+export interface DetectWeightResult {
+  detected: boolean;
+  weightKg?: number | null;
+  weightLbs?: number | null;
+  confidence?: DetectWeightResultConfidence;
+  description?: string | null;
+}
+
+export interface DetectExerciseBody {
+  imageBase64?: string | null;
+  /** Additional context about the exercise */
+  context?: string | null;
+}
+
+export type DetectExerciseResultConfidence =
+  | (typeof DetectExerciseResultConfidence)[keyof typeof DetectExerciseResultConfidence]
+  | null;
+
+export const DetectExerciseResultConfidence = {
+  high: "high",
+  medium: "medium",
+  low: "low",
+} as const;
+
+export interface DetectExerciseResult {
+  detected: boolean;
+  exerciseId?: string | null;
+  exerciseName?: string | null;
+  confidence?: DetectExerciseResultConfidence;
+}
+
+export type ListExercises200 = {
+  exercises: Exercise[];
+};
+
+export type ListWorkouts200 = {
+  workouts: WorkoutSession[];
+};

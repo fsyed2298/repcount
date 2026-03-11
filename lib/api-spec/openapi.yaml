@@ -10,6 +10,12 @@ servers:
 tags:
   - name: health
     description: Health operations
+  - name: workouts
+    description: Workout session operations
+  - name: exercises
+    description: Exercise catalog operations
+  - name: ai
+    description: AI-powered features (weight detection, exercise recognition)
 paths:
   /healthz:
     get:
@@ -24,6 +30,187 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /exercises:
+    get:
+      operationId: listExercises
+      tags: [exercises]
+      summary: List popular exercises
+      description: Returns a list of popular exercises grouped by category
+      responses:
+        "200":
+          description: List of exercises
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  exercises:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Exercise"
+                required:
+                  - exercises
+
+  /workouts:
+    get:
+      operationId: listWorkouts
+      tags: [workouts]
+      summary: List all workouts
+      responses:
+        "200":
+          description: List of workouts
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  workouts:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/WorkoutSession"
+                required:
+                  - workouts
+    post:
+      operationId: createWorkout
+      tags: [workouts]
+      summary: Start a new workout session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateWorkoutBody"
+      responses:
+        "201":
+          description: Created workout session
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkoutSession"
+
+  /workouts/{id}:
+    get:
+      operationId: getWorkout
+      tags: [workouts]
+      summary: Get a workout session
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Workout session
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkoutSession"
+        "404":
+          description: Not found
+    patch:
+      operationId: updateWorkout
+      tags: [workouts]
+      summary: Update a workout session (e.g., complete it)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateWorkoutBody"
+      responses:
+        "200":
+          description: Updated workout session
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkoutSession"
+    delete:
+      operationId: deleteWorkout
+      tags: [workouts]
+      summary: Delete a workout session
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Deleted
+
+  /workouts/{id}/sets:
+    post:
+      operationId: addSet
+      tags: [workouts]
+      summary: Add a set to a workout
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddSetBody"
+      responses:
+        "201":
+          description: Created set
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkoutSet"
+
+  /ai/detect-weight:
+    post:
+      operationId: detectWeight
+      tags: [ai]
+      summary: Detect weight from image
+      description: Analyzes an image to detect weight amount (in lbs or kg) from a dumbbell or weight stack
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DetectWeightBody"
+      responses:
+        "200":
+          description: Weight detection result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DetectWeightResult"
+
+  /ai/detect-exercise:
+    post:
+      operationId: detectExercise
+      tags: [ai]
+      summary: Detect exercise type from image
+      description: Attempts to identify the exercise being performed based on image and context
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DetectExerciseBody"
+      responses:
+        "200":
+          description: Exercise detection result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DetectExerciseResult"
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +221,203 @@ components:
       required:
         - status
 
+    Exercise:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        category:
+          type: string
+          enum: [chest, back, shoulders, arms, legs, core, full_body]
+        equipment:
+          type: string
+          enum: [dumbbell, barbell, machine, cable, bodyweight]
+        muscleGroup:
+          type: string
+        sfSymbol:
+          type: string
+      required:
+        - id
+        - name
+        - category
+        - equipment
+        - muscleGroup
+
+    WorkoutSession:
+      type: object
+      properties:
+        id:
+          type: string
+        exerciseId:
+          type: string
+        exerciseName:
+          type: string
+        detectedWeightKg:
+          type: number
+          nullable: true
+        weightUnit:
+          type: string
+          enum: [kg, lbs]
+        startedAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+        sets:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkoutSet"
+        totalVolume:
+          type: number
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+      required:
+        - id
+        - exerciseId
+        - exerciseName
+        - weightUnit
+        - startedAt
+        - sets
+
+    WorkoutSet:
+      type: object
+      properties:
+        id:
+          type: string
+        workoutId:
+          type: string
+        setNumber:
+          type: integer
+        reps:
+          type: integer
+        weightKg:
+          type: number
+        completedAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - workoutId
+        - setNumber
+        - reps
+        - weightKg
+        - completedAt
+
+    CreateWorkoutBody:
+      type: object
+      properties:
+        exerciseId:
+          type: string
+        exerciseName:
+          type: string
+        detectedWeightKg:
+          type: number
+          nullable: true
+        weightUnit:
+          type: string
+          enum: [kg, lbs]
+        notes:
+          type: string
+          nullable: true
+      required:
+        - exerciseId
+        - exerciseName
+        - weightUnit
+
+    UpdateWorkoutBody:
+      type: object
+      properties:
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+        totalVolume:
+          type: number
+          nullable: true
+
+    AddSetBody:
+      type: object
+      properties:
+        reps:
+          type: integer
+        weightKg:
+          type: number
+        setNumber:
+          type: integer
+      required:
+        - reps
+        - weightKg
+        - setNumber
+
+    DetectWeightBody:
+      type: object
+      properties:
+        imageBase64:
+          type: string
+          description: Base64-encoded image data
+        unit:
+          type: string
+          enum: [kg, lbs]
+          default: lbs
+      required:
+        - imageBase64
+
+    DetectWeightResult:
+      type: object
+      properties:
+        detected:
+          type: boolean
+        weightKg:
+          type: number
+          nullable: true
+        weightLbs:
+          type: number
+          nullable: true
+        confidence:
+          type: string
+          enum: [high, medium, low]
+          nullable: true
+        description:
+          type: string
+          nullable: true
+      required:
+        - detected
+
+    DetectExerciseBody:
+      type: object
+      properties:
+        imageBase64:
+          type: string
+          nullable: true
+        context:
+          type: string
+          nullable: true
+          description: Additional context about the exercise
+      required: []
+
+    DetectExerciseResult:
+      type: object
+      properties:
+        detected:
+          type: boolean
+        exerciseId:
+          type: string
+          nullable: true
+        exerciseName:
+          type: string
+          nullable: true
+        confidence:
+          type: string
+          enum: [high, medium, low]
+          nullable: true
+      required:
+        - detected

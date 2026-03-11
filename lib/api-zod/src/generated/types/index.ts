@@ -6,4 +6,23 @@
  * OpenAPI spec version: 0.1.0
  */
 
+export * from "./addSetBody";
+export * from "./createWorkoutBody";
+export * from "./createWorkoutBodyWeightUnit";
+export * from "./detectExerciseBody";
+export * from "./detectExerciseResult";
+export * from "./detectExerciseResultConfidence";
+export * from "./detectWeightBody";
+export * from "./detectWeightBodyUnit";
+export * from "./detectWeightResult";
+export * from "./detectWeightResultConfidence";
+export * from "./exercise";
+export * from "./exerciseCategory";
+export * from "./exerciseEquipment";
 export * from "./healthStatus";
+export * from "./listExercises200";
+export * from "./listWorkouts200";
+export * from "./updateWorkoutBody";
+export * from "./workoutSession";
+export * from "./workoutSessionWeightUnit";
+export * from "./workoutSet";
