@@ -19,8 +19,8 @@ router.post("/ai/detect-weight", async (req, res) => {
     }
 
     const response = await openai.chat.completions.create({
-      model: "gpt-5.2",
-      max_completion_tokens: 500,
+      model: "gpt-4o",
+      max_tokens: 500,
       messages: [
         {
           role: "user",
@@ -67,11 +67,13 @@ Weight detection rules:
       } else {
         result = JSON.parse(content);
       }
-    } catch {
+    } catch (parseErr) {
+      console.error("Weight detection JSON parse error:", parseErr, "raw content:", content);
       result = { detected: false, weightKg: null, confidence: null, description: null };
     }
 
     const weightLbs = result.weightKg ? result.weightKg * 2.2046 : null;
+    console.log("Weight detection result:", result);
     
     res.json({
       detected: result.detected ?? false,
@@ -81,8 +83,8 @@ Weight detection rules:
       description: result.description ?? null,
     });
   } catch (error) {
-    console.error("Weight detection error:", error);
-    res.status(500).json({ error: "Failed to detect weight" });
+    console.error("Weight detection error (full):", error);
+    res.status(500).json({ error: "Failed to detect weight", detail: String(error) });
   }
 });
 
@@ -127,8 +129,8 @@ If not detected: {"detected":false,"exerciseId":null,"exerciseName":null,"confid
     messages.push({ role: "user", content: userContent });
 
     const response = await openai.chat.completions.create({
-      model: "gpt-5.2",
-      max_completion_tokens: 200,
+      model: "gpt-4o",
+      max_tokens: 200,
       messages,
     });
 

@@ -214,8 +214,8 @@ export default function ExerciseSelectScreen() {
             style={[
               styles.catChip,
               {
-                backgroundColor: category === cat ? accent : theme.backgroundSecondary,
-                borderColor: category === cat ? accent : theme.border,
+                backgroundColor: category === cat ? accent : theme.backgroundTertiary,
+                borderColor: category === cat ? accent : theme.borderStrong,
               }
             ]}
             onPress={() => {
@@ -224,7 +224,7 @@ export default function ExerciseSelectScreen() {
             }}
           >
             <Text style={[styles.catChipText, {
-              color: category === cat ? "#fff" : theme.textSecondary,
+              color: category === cat ? "#fff" : theme.text,
               fontFamily: "Inter_500Medium"
             }]}>
               {CATEGORY_LABELS[cat]}
@@ -361,7 +361,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     paddingVertical: 9,
     borderRadius: 20,
-    borderWidth: 1,
+    borderWidth: 1.5,
+    minWidth: 64,
+    alignItems: "center",
   },
   catChipText: { fontSize: 14 },
   loadingContainer: { flex: 1, alignItems: "center", justifyContent: "center" },
