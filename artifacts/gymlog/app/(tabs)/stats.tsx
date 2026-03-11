@@ -1,13 +1,15 @@
-import React, { useEffect, useMemo } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
   Platform,
+  Pressable,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import * as Haptics from "expo-haptics";
 import { useTheme } from "@/constants/theme";
 import { useWorkout } from "@/context/workout";
 
@@ -48,8 +50,10 @@ function StatCard({ label, value, sub, icon, color }: StatCardProps) {
 export default function StatsScreen() {
   const insets = useSafeAreaInsets();
   const { theme, accent } = useTheme();
-  const { workouts, fetchWorkouts, weightUnit } = useWorkout();
+  const { workouts, fetchWorkouts } = useWorkout();
   const topPad = Platform.OS === "web" ? 67 : insets.top;
+
+  const [volumeUnit, setVolumeUnit] = useState<"lbs" | "kg">("lbs");
 
   useEffect(() => {
     fetchWorkouts();
@@ -89,10 +93,14 @@ export default function StatsScreen() {
     };
   }, [workouts]);
 
-  const displayVolume =
-    weightUnit === "lbs"
-      ? kgToLbs(stats.totalVolumeKg).toLocaleString()
-      : Math.round(stats.totalVolumeKg).toLocaleString();
+  const displayVolumeKg = Math.round(stats.totalVolumeKg).toLocaleString();
+  const displayVolumeLbs = kgToLbs(stats.totalVolumeKg).toLocaleString();
+  const displayVolume = volumeUnit === "lbs" ? displayVolumeLbs : displayVolumeKg;
+
+  const toggleVolumeUnit = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setVolumeUnit(u => u === "lbs" ? "kg" : "lbs");
+  };
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
@@ -140,13 +148,50 @@ export default function StatsScreen() {
                 icon="repeat-outline"
                 color="#FF9F0A"
               />
-              <StatCard
-                label="Volume"
-                value={displayVolume}
-                sub={weightUnit}
-                icon="trending-up-outline"
-                color="#45B7D1"
-              />
+
+              {/* Volume card with inline toggle */}
+              <Pressable
+                onPress={toggleVolumeUnit}
+                style={[styles.statCard, styles.volumeCard, { backgroundColor: theme.card, borderColor: theme.border }]}
+              >
+                <View style={styles.volumeCardTop}>
+                  <View style={[styles.statIcon, { backgroundColor: `rgba(69,183,209,0.12)` }]}>
+                    <Ionicons name="trending-up-outline" size={22} color="#45B7D1" />
+                  </View>
+                  <View style={[styles.unitToggle, { backgroundColor: theme.backgroundTertiary }]}>
+                    <View style={[
+                      styles.unitTogglePill,
+                      { backgroundColor: volumeUnit === "lbs" ? accent : "transparent" }
+                    ]}>
+                      <Text style={[styles.unitToggleText, {
+                        color: volumeUnit === "lbs" ? "#fff" : theme.textTertiary,
+                        fontFamily: "Inter_600SemiBold"
+                      }]}>lbs</Text>
+                    </View>
+                    <View style={[
+                      styles.unitTogglePill,
+                      { backgroundColor: volumeUnit === "kg" ? accent : "transparent" }
+                    ]}>
+                      <Text style={[styles.unitToggleText, {
+                        color: volumeUnit === "kg" ? "#fff" : theme.textTertiary,
+                        fontFamily: "Inter_600SemiBold"
+                      }]}>kg</Text>
+                    </View>
+                  </View>
+                </View>
+                <Text style={[styles.statValue, { color: theme.text, fontFamily: "Inter_700Bold" }]}>
+                  {displayVolume}
+                </Text>
+                <Text style={[styles.statLabel, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
+                  Volume
+                </Text>
+                <Text style={[styles.statSub, { color: theme.textTertiary, fontFamily: "Inter_400Regular" }]}>
+                  {volumeUnit === "lbs"
+                    ? `= ${displayVolumeKg} kg`
+                    : `= ${displayVolumeLbs} lbs`}
+                </Text>
+              </Pressable>
+
               <StatCard
                 label="Avg Reps/Set"
                 value={stats.avgRepsPerSet}
@@ -180,7 +225,6 @@ export default function StatsScreen() {
               </View>
             )}
 
-            {/* Apple Health note */}
             <View style={[styles.healthNote, { backgroundColor: `rgba(52, 199, 89, 0.08)`, borderColor: "rgba(52,199,89,0.2)" }]}>
               <Ionicons name="heart" size={18} color="#34C759" />
               <Text style={[styles.healthNoteText, { color: theme.text, fontFamily: "Inter_400Regular" }]}>
@@ -213,13 +257,33 @@ const styles = StyleSheet.create({
     padding: 16,
     gap: 6,
   },
+  volumeCard: {
+    gap: 6,
+  },
+  volumeCardTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 4,
+  },
+  unitToggle: {
+    flexDirection: "row",
+    borderRadius: 10,
+    padding: 2,
+    gap: 2,
+  },
+  unitTogglePill: {
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  unitToggleText: { fontSize: 11 },
   statIcon: {
     width: 40,
     height: 40,
     borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 4,
   },
   statValue: { fontSize: 26 },
   statLabel: { fontSize: 13 },

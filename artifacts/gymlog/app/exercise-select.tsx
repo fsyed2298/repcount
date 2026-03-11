@@ -150,9 +150,7 @@ export default function ExerciseSelectScreen() {
               {hasDetectedWeight ? "Weight detected from photo" : "No weight detected"}
             </Text>
             <Text style={[styles.weightDetectedValue, { color: hasDetectedWeight ? theme.text : theme.textTertiary, fontFamily: "Inter_700Bold" }]}>
-              {hasDetectedWeight
-                ? `${displayWeight}${params.weightDescription ? ` · ${params.weightDescription}` : ""}`
-                : "Set weight manually below"}
+              {hasDetectedWeight ? displayWeight : "Set weight manually below"}
             </Text>
           </View>
           {hasDetectedWeight && params.weightConfidence && (
@@ -358,13 +356,12 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   searchInput: { flex: 1, fontSize: 15 },
-  categoryRow: { paddingLeft: 20, paddingRight: 20, gap: 8, marginBottom: 12 },
+  categoryRow: { paddingLeft: 20, paddingRight: 20, gap: 8, marginBottom: 12, alignItems: "flex-start" },
   catChip: {
     paddingHorizontal: 18,
     paddingVertical: 9,
     borderRadius: 20,
     borderWidth: 1,
-    flexShrink: 0,
   },
   catChipText: { fontSize: 14 },
   loadingContainer: { flex: 1, alignItems: "center", justifyContent: "center" },
