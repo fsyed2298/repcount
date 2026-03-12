@@ -19,10 +19,17 @@ import { useWorkout } from "@/context/workout";
 import { SetRow } from "@/components/ui/SetRow";
 
 let WatchConnectivity: any = null;
+let WC_LOAD_ERROR = "";
 if (Platform.OS === "ios") {
   try {
-    WatchConnectivity = require("react-native-watch-connectivity").default;
-  } catch {
+    const mod = require("react-native-watch-connectivity");
+    WatchConnectivity = mod.default ?? mod;
+    if (!WatchConnectivity?.sendMessage) {
+      WC_LOAD_ERROR = "module loaded but sendMessage missing";
+      WatchConnectivity = null;
+    }
+  } catch (e: any) {
+    WC_LOAD_ERROR = e?.message ?? "unknown error";
     WatchConnectivity = null;
   }
 }
@@ -63,6 +70,7 @@ export default function WorkoutActiveScreen() {
   const [watchReachable, setWatchReachable] = useState(false);
   const [usingWatch, setUsingWatch] = useState(false);
   const [watchPaired, setWatchPaired] = useState(false);
+  const [wcDebug, setWcDebug] = useState<string>("");
 
   const scrollRef = useRef<ScrollView>(null);
   const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -83,17 +91,29 @@ export default function WorkoutActiveScreen() {
   useEffect(() => { usingWatchRef.current = usingWatch; }, [usingWatch]);
 
   useEffect(() => {
-    if (!WatchConnectivity) return;
+    if (!WatchConnectivity) {
+      setWcDebug(`WC: NOT LOADED${WC_LOAD_ERROR ? ` — ${WC_LOAD_ERROR}` : " (non-iOS or load failed)"}`);
+      return;
+    }
+    setWcDebug("WC: loaded, checking status…");
+
     WatchConnectivity.getReachability().then((r: boolean) => {
       setWatchReachable(r);
       if (r) setWatchPaired(true);
-    });
+      setWcDebug(d => d.replace(/checking.*/, `reachable=${r}`));
+    }).catch((e: any) => setWcDebug(`getReachability err: ${e?.message}`));
+
     try {
-      WatchConnectivity.getIsPaired?.().then((p: boolean) => setWatchPaired(p));
+      WatchConnectivity.getIsPaired?.().then((p: boolean) => {
+        setWatchPaired(p);
+        setWcDebug(d => `${d} paired=${p}`);
+      }).catch((e: any) => setWcDebug(d => `${d} getIsPaired-err=${e?.message}`));
     } catch {}
+
     const sub = WatchConnectivity.watchEvents.on("reachability", (r: boolean) => {
       setWatchReachable(r);
       if (r) setWatchPaired(true);
+      setWcDebug(`reachability event: ${r}`);
     });
     return () => sub?.();
   }, []);
@@ -206,10 +226,13 @@ export default function WorkoutActiveScreen() {
       try {
         WatchConnectivity.sendMessage(
           { type: "startTracking", targetReps: targetRepsRef.current },
-          () => {},
-          () => {}
+          () => { setWcDebug("sendMessage: SUCCESS ✓"); },
+          (e: any) => { setWcDebug(`sendMessage ERR: ${e?.message ?? JSON.stringify(e)}`); }
         );
-      } catch {}
+        setWcDebug("sendMessage: sent, waiting for reply…");
+      } catch (e: any) {
+        setWcDebug(`sendMessage THREW: ${e?.message}`);
+      }
 
       watchMsgSubRef.current?.();
       watchMsgSubRef.current = WatchConnectivity.watchEvents.on("message", (msg: any) => {
@@ -369,6 +392,17 @@ export default function WorkoutActiveScreen() {
           </Text>
         </Pressable>
       </View>
+
+      {/* WC Debug strip — remove once Watch is working */}
+      {!!wcDebug && (
+        <Pressable onPress={() => setWcDebug("")}>
+          <View style={{ backgroundColor: "#1a1a2e", paddingHorizontal: 12, paddingVertical: 5 }}>
+            <Text style={{ color: "#7fd4ff", fontSize: 10, fontFamily: "Inter_400Regular" }} numberOfLines={2}>
+              🔧 {wcDebug}
+            </Text>
+          </View>
+        </Pressable>
+      )}
 
       {/* Stats row */}
       <View style={[styles.statsRow, { backgroundColor: theme.backgroundSecondary, borderColor: theme.border }]}>
