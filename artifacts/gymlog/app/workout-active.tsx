@@ -203,9 +203,8 @@ export default function WorkoutActiveScreen() {
 
     // Stop both watch and phone
     if (WatchConnectivity) {
-      try {
-        WatchConnectivity.sendMessage({ type: "stopTracking" }, () => {}, () => {});
-      } catch {}
+      try { WatchConnectivity.updateApplicationContext({ type: "stopTracking", ts: Date.now() }); } catch {}
+      try { WatchConnectivity.sendMessage({ type: "stopTracking" }, () => {}, () => {}); } catch {}
       watchMsgSubRef.current?.();
       watchMsgSubRef.current = null;
     }
@@ -239,20 +238,25 @@ export default function WorkoutActiveScreen() {
     setUsingWatch(false);
     usingWatchRef.current = false;
 
-    // Always attempt Watch — store as pending so it retries on next reachability event
+    // Send to Watch via two paths: sendMessage (instant) + updateApplicationContext (reliable fallback)
     if (WatchConnectivity) {
-      const msg = { type: "startTracking", targetReps: targetRepsRef.current };
+      const msg = { type: "startTracking", targetReps: targetRepsRef.current, ts: Date.now() };
       pendingWatchMsgRef.current = msg;
+      // Always update application context first — Watch receives this when it opens (no reachability needed)
+      try {
+        WatchConnectivity.updateApplicationContext(msg);
+        setWcDebug("updateApplicationContext sent ✓ — open Watch app to start");
+      } catch (e: any) {
+        setWcDebug(`updateApplicationContext err: ${e?.message}`);
+      }
+      // Also try sendMessage in case Watch is already open
       try {
         WatchConnectivity.sendMessage(
           msg,
           () => { setWcDebug("sendMessage: SUCCESS ✓"); },
-          (e: any) => { setWcDebug(`sendMessage ERR (will retry when Watch opens): ${e?.message ?? JSON.stringify(e)}`); }
+          (e: any) => { setWcDebug(`sendMessage ERR (context already sent): ${e?.message ?? ""}`); }
         );
-        setWcDebug("sendMessage: sent, waiting for reply…");
-      } catch (e: any) {
-        setWcDebug(`sendMessage THREW: ${e?.message}`);
-      }
+      } catch {}
 
       watchMsgSubRef.current?.();
       watchMsgSubRef.current = WatchConnectivity.watchEvents.on("message", (msg: any) => {
