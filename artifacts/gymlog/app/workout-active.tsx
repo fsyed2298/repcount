@@ -86,6 +86,7 @@ export default function WorkoutActiveScreen() {
   const isLoggingRef = useRef(false);
   const usingWatchRef = useRef(false);
   const watchRespondedRef = useRef(false);
+  const pendingWatchMsgRef = useRef<Record<string, any> | null>(null);
 
   useEffect(() => { targetRepsRef.current = targetReps; }, [targetReps]);
   useEffect(() => { usingWatchRef.current = usingWatch; }, [usingWatch]);
@@ -110,10 +111,26 @@ export default function WorkoutActiveScreen() {
       }).catch((e: any) => setWcDebug(d => `${d} getIsPaired-err=${e?.message}`));
     } catch {}
 
+    const trySend = (msg: Record<string, any>) => {
+      WatchConnectivity.sendMessage(
+        msg,
+        () => { setWcDebug("sendMessage: SUCCESS ✓"); },
+        (e: any) => { setWcDebug(`sendMessage ERR: ${e?.message ?? JSON.stringify(e)}`); }
+      );
+    };
+
     const sub = WatchConnectivity.watchEvents.on("reachability", (r: boolean) => {
       setWatchReachable(r);
-      if (r) setWatchPaired(true);
-      setWcDebug(`reachability event: ${r}`);
+      if (r) {
+        setWatchPaired(true);
+        setWcDebug(`reachability event: true — auto-sending pending msg`);
+        // Auto-deliver any pending message the moment Watch becomes reachable
+        if (pendingWatchMsgRef.current) {
+          trySend(pendingWatchMsgRef.current);
+        }
+      } else {
+        setWcDebug(`reachability event: false`);
+      }
     });
     return () => sub?.();
   }, []);
@@ -196,6 +213,7 @@ export default function WorkoutActiveScreen() {
     Accelerometer.setUpdateInterval(1000);
 
     watchRespondedRef.current = false;
+    pendingWatchMsgRef.current = null;
     setUsingWatch(false);
     usingWatchRef.current = false;
 
@@ -221,13 +239,15 @@ export default function WorkoutActiveScreen() {
     setUsingWatch(false);
     usingWatchRef.current = false;
 
-    // Always attempt Watch — send message regardless of reachability
+    // Always attempt Watch — store as pending so it retries on next reachability event
     if (WatchConnectivity) {
+      const msg = { type: "startTracking", targetReps: targetRepsRef.current };
+      pendingWatchMsgRef.current = msg;
       try {
         WatchConnectivity.sendMessage(
-          { type: "startTracking", targetReps: targetRepsRef.current },
+          msg,
           () => { setWcDebug("sendMessage: SUCCESS ✓"); },
-          (e: any) => { setWcDebug(`sendMessage ERR: ${e?.message ?? JSON.stringify(e)}`); }
+          (e: any) => { setWcDebug(`sendMessage ERR (will retry when Watch opens): ${e?.message ?? JSON.stringify(e)}`); }
         );
         setWcDebug("sendMessage: sent, waiting for reply…");
       } catch (e: any) {
@@ -631,8 +651,8 @@ export default function WorkoutActiveScreen() {
             <Text style={[styles.accelHint, { color: theme.textTertiary, fontFamily: "Inter_400Regular" }]}>
               {watchPaired
                 ? watchReachable
-                  ? "Apple Watch counting · phone is backup"
-                  : "Open RepCountWatch on your Watch to enable Watch counting"
+                  ? "Apple Watch will count reps · phone is backup"
+                  : "Tap Start Set, then open RepCountWatch on your Watch"
                 : "Phone accelerometer counts reps"}
             </Text>
           </>
