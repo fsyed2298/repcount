@@ -62,6 +62,7 @@ export default function WorkoutActiveScreen() {
   const [lastAddedSetId, setLastAddedSetId] = useState<string | null>(null);
   const [watchReachable, setWatchReachable] = useState(false);
   const [usingWatch, setUsingWatch] = useState(false);
+  const [watchPaired, setWatchPaired] = useState(false);
 
   const scrollRef = useRef<ScrollView>(null);
   const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -76,15 +77,23 @@ export default function WorkoutActiveScreen() {
   const targetRepsRef = useRef(targetReps);
   const isLoggingRef = useRef(false);
   const usingWatchRef = useRef(false);
+  const watchRespondedRef = useRef(false);
 
   useEffect(() => { targetRepsRef.current = targetReps; }, [targetReps]);
   useEffect(() => { usingWatchRef.current = usingWatch; }, [usingWatch]);
 
   useEffect(() => {
     if (!WatchConnectivity) return;
-    WatchConnectivity.getReachability().then((r: boolean) => setWatchReachable(r));
+    WatchConnectivity.getReachability().then((r: boolean) => {
+      setWatchReachable(r);
+      if (r) setWatchPaired(true);
+    });
+    try {
+      WatchConnectivity.getIsPaired?.().then((p: boolean) => setWatchPaired(p));
+    } catch {}
     const sub = WatchConnectivity.watchEvents.on("reachability", (r: boolean) => {
       setWatchReachable(r);
+      if (r) setWatchPaired(true);
     });
     return () => sub?.();
   }, []);
@@ -147,22 +156,28 @@ export default function WorkoutActiveScreen() {
     }
   }, [activeWorkout, weightUnit, weight, addSet, pulseAnim]);
 
+  const stopPhoneAccel = useCallback(() => {
+    accelSubRef.current?.remove();
+    accelSubRef.current = null;
+  }, []);
+
   const stopTracking = useCallback(async (repsToLog?: number) => {
     setIsTracking(false);
 
-    if (usingWatchRef.current && WatchConnectivity) {
+    // Stop both watch and phone
+    if (WatchConnectivity) {
       try {
         WatchConnectivity.sendMessage({ type: "stopTracking" }, () => {}, () => {});
       } catch {}
       watchMsgSubRef.current?.();
       watchMsgSubRef.current = null;
-    } else {
-      accelSubRef.current?.remove();
-      accelSubRef.current = null;
-      Accelerometer.setUpdateInterval(1000);
     }
+    stopPhoneAccel();
+    Accelerometer.setUpdateInterval(1000);
 
+    watchRespondedRef.current = false;
     setUsingWatch(false);
+    usingWatchRef.current = false;
 
     const reps = repsToLog ?? currentRepsRef.current;
     setCurrentReps(0);
@@ -172,42 +187,59 @@ export default function WorkoutActiveScreen() {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       await handleLogSet(reps);
     }
-  }, [handleLogSet]);
+  }, [handleLogSet, stopPhoneAccel]);
 
-  const startTrackingWithWatch = useCallback(() => {
-    if (!WatchConnectivity) return false;
-    setUsingWatch(true);
-    usingWatchRef.current = true;
-
-    WatchConnectivity.sendMessage(
-      { type: "startTracking", targetReps: targetRepsRef.current },
-      () => {},
-      () => {}
-    );
-
-    watchMsgSubRef.current = WatchConnectivity.watchEvents.on("message", (msg: any) => {
-      if (msg.type === "rep") {
-        flashRep(msg.count);
-        if (msg.count >= targetRepsRef.current) {
-          stopTracking(msg.count);
-        }
-      } else if (msg.type === "setComplete") {
-        stopTracking(msg.count);
-      }
-    });
-
-    return true;
-  }, [flashRep, stopTracking]);
-
-  const startTrackingWithPhone = useCallback(() => {
+  const startTracking = useCallback(() => {
+    if (isResting) {
+      Alert.alert("Still resting", "Wait for rest timer to finish, or skip it first.");
+      return;
+    }
+    currentRepsRef.current = 0;
+    watchRespondedRef.current = false;
+    setCurrentReps(0);
+    setIsTracking(true);
     setUsingWatch(false);
     usingWatchRef.current = false;
 
+    // Always attempt Watch — send message regardless of reachability
+    if (WatchConnectivity) {
+      try {
+        WatchConnectivity.sendMessage(
+          { type: "startTracking", targetReps: targetRepsRef.current },
+          () => {},
+          () => {}
+        );
+      } catch {}
+
+      watchMsgSubRef.current?.();
+      watchMsgSubRef.current = WatchConnectivity.watchEvents.on("message", (msg: any) => {
+        if (msg.type === "rep") {
+          // Watch responded — stop phone accel, switch to Watch mode
+          if (!watchRespondedRef.current) {
+            watchRespondedRef.current = true;
+            setUsingWatch(true);
+            usingWatchRef.current = true;
+            stopPhoneAccel();
+          }
+          flashRep(msg.count);
+          if (msg.count >= targetRepsRef.current) {
+            stopTracking(msg.count);
+          }
+        } else if (msg.type === "setComplete") {
+          stopTracking(msg.count);
+        }
+      });
+    }
+
+    // Always also start phone accel as backup
+    // It stops automatically the moment Watch sends its first rep
     accelWindowRef.current = [];
     lastRepTimeRef.current = 0;
-
     Accelerometer.setUpdateInterval(80);
     accelSubRef.current = Accelerometer.addListener(({ x, y, z }) => {
+      // If Watch has taken over, ignore phone accel
+      if (watchRespondedRef.current) return;
+
       const mag = Math.sqrt(x * x + y * y + z * z);
       accelWindowRef.current.push(mag);
       if (accelWindowRef.current.length > WINDOW_SIZE) {
@@ -223,29 +255,12 @@ export default function WorkoutActiveScreen() {
         lastRepTimeRef.current = now;
         const newCount = currentRepsRef.current + 1;
         flashRep(newCount);
-
         if (newCount >= targetRepsRef.current) {
           stopTracking(newCount);
         }
       }
     });
-  }, [flashRep, stopTracking]);
-
-  const startTracking = useCallback(() => {
-    if (isResting) {
-      Alert.alert("Still resting", "Wait for rest timer to finish, or skip it first.");
-      return;
-    }
-    currentRepsRef.current = 0;
-    setCurrentReps(0);
-    setIsTracking(true);
-
-    if (watchReachable && WatchConnectivity) {
-      startTrackingWithWatch();
-    } else {
-      startTrackingWithPhone();
-    }
-  }, [isResting, watchReachable, startTrackingWithWatch, startTrackingWithPhone]);
+  }, [isResting, flashRep, stopTracking, stopPhoneAccel]);
 
   useEffect(() => {
     return () => {
@@ -313,9 +328,10 @@ export default function WorkoutActiveScreen() {
   const displayVol = weightUnit === "lbs" ? kgToLbs(totalVol) : Math.round(totalVol);
   const progressPct = isTracking && targetReps > 0 ? Math.min(currentReps / targetReps, 1) : 0;
 
-  const trackingSource = usingWatch ? "Apple Watch" : "phone";
   const trackingHint = usingWatch
-    ? "Apple Watch is counting reps"
+    ? "Apple Watch is counting reps · haptics on watch"
+    : watchPaired
+    ? "Waiting for Watch · phone counting as backup"
     : "Move your phone · reps detected automatically";
 
   return (
@@ -328,10 +344,12 @@ export default function WorkoutActiveScreen() {
             <Text style={[styles.liveText, { color: isTracking ? "#34C759" : accent, fontFamily: "Inter_600SemiBold" }]}>
               {isTracking ? "TRACKING" : "LIVE"}
             </Text>
-            {watchReachable && !isTracking && (
+            {watchPaired && !isTracking && (
               <View style={[styles.watchBadge, { backgroundColor: `${accent}18`, borderColor: `${accent}30` }]}>
                 <Ionicons name="watch-outline" size={10} color={accent} />
-                <Text style={[styles.watchBadgeText, { color: accent, fontFamily: "Inter_500Medium" }]}>Watch</Text>
+                <Text style={[styles.watchBadgeText, { color: accent, fontFamily: "Inter_500Medium" }]}>
+                  {watchReachable ? "Watch" : "Watch (open app)"}
+                </Text>
               </View>
             )}
           </View>
@@ -409,8 +427,8 @@ export default function WorkoutActiveScreen() {
           <View style={styles.noSets}>
             <Ionicons name="layers-outline" size={40} color={theme.textTertiary} />
             <Text style={[styles.noSetsText, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
-              {watchReachable
-                ? "Press Start Set · reps counted on your Watch"
+              {watchPaired
+                ? "Press Start Set · Watch counts reps, phone is backup"
                 : "Press Start Set and move your phone"}
             </Text>
           </View>
@@ -565,7 +583,7 @@ export default function WorkoutActiveScreen() {
               ]}
               onPress={startTracking}
             >
-              {watchReachable
+              {watchPaired
                 ? <Ionicons name="watch" size={22} color={isResting ? theme.textSecondary : "#fff"} />
                 : <Ionicons name="play-circle" size={22} color={isResting ? theme.textSecondary : "#fff"} />
               }
@@ -577,9 +595,11 @@ export default function WorkoutActiveScreen() {
             </Pressable>
 
             <Text style={[styles.accelHint, { color: theme.textTertiary, fontFamily: "Inter_400Regular" }]}>
-              {watchReachable
-                ? "Apple Watch will count reps · phone is fallback"
-                : "Phone accelerometer counts reps · set down when not active"}
+              {watchPaired
+                ? watchReachable
+                  ? "Apple Watch counting · phone is backup"
+                  : "Open RepCountWatch on your Watch to enable Watch counting"
+                : "Phone accelerometer counts reps"}
             </Text>
           </>
         )}
