@@ -93,46 +93,65 @@ export default function WorkoutActiveScreen() {
 
   useEffect(() => {
     if (!WatchConnectivity) {
-      setWcDebug(`WC: NOT LOADED${WC_LOAD_ERROR ? ` — ${WC_LOAD_ERROR}` : " (non-iOS or load failed)"}`);
+      setWcDebug(`WC: NOT LOADED${WC_LOAD_ERROR ? ` — ${WC_LOAD_ERROR}` : ""}`);
       return;
     }
-    setWcDebug("WC: loaded, checking status…");
 
     WatchConnectivity.getReachability().then((r: boolean) => {
       setWatchReachable(r);
       if (r) setWatchPaired(true);
-      setWcDebug(d => d.replace(/checking.*/, `reachable=${r}`));
-    }).catch((e: any) => setWcDebug(`getReachability err: ${e?.message}`));
+      setWcDebug(`WC loaded · reachable=${r}`);
+    }).catch(() => {});
 
     try {
       WatchConnectivity.getIsPaired?.().then((p: boolean) => {
         setWatchPaired(p);
-        setWcDebug(d => `${d} paired=${p}`);
-      }).catch((e: any) => setWcDebug(d => `${d} getIsPaired-err=${e?.message}`));
+      }).catch(() => {});
     } catch {}
 
-    const trySend = (msg: Record<string, any>) => {
-      WatchConnectivity.sendMessage(
-        msg,
-        () => { setWcDebug("sendMessage: SUCCESS ✓"); },
-        (e: any) => { setWcDebug(`sendMessage ERR: ${e?.message ?? JSON.stringify(e)}`); }
-      );
-    };
-
-    const sub = WatchConnectivity.watchEvents.on("reachability", (r: boolean) => {
+    const reachabilitySub = WatchConnectivity.watchEvents.on("reachability", (r: boolean) => {
       setWatchReachable(r);
-      if (r) {
-        setWatchPaired(true);
-        setWcDebug(`reachability event: true — auto-sending pending msg`);
-        // Auto-deliver any pending message the moment Watch becomes reachable
-        if (pendingWatchMsgRef.current) {
-          trySend(pendingWatchMsgRef.current);
+      if (r) setWatchPaired(true);
+      setWcDebug(`Watch ${r ? "connected ✓" : "disconnected"}`);
+    });
+
+    // Global listener: handles Watch-initiated sets AND rep counts during phone-initiated sets
+    const globalMsgSub = WatchConnectivity.watchEvents.on("message", (msg: any) => {
+      if (msg.type === "watchStarted") {
+        // Watch started a set — put phone into Watch-tracking mode
+        const reps = msg.targetReps ?? targetRepsRef.current;
+        currentRepsRef.current = 0;
+        watchRespondedRef.current = true;
+        setCurrentReps(0);
+        setIsTracking(true);
+        setUsingWatch(true);
+        usingWatchRef.current = true;
+        setTargetReps(reps);
+        setWcDebug(`Watch started set (${reps} reps) ✓`);
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      } else if (msg.type === "watchStopped") {
+        // Watch stopped — log the set
+        const count = msg.count ?? currentRepsRef.current;
+        stopTracking(count);
+      } else if (msg.type === "rep") {
+        if (!watchRespondedRef.current) {
+          watchRespondedRef.current = true;
+          setUsingWatch(true);
+          usingWatchRef.current = true;
+          stopPhoneAccel();
         }
-      } else {
-        setWcDebug(`reachability event: false`);
+        flashRep(msg.count);
+        if (msg.count >= targetRepsRef.current) stopTracking(msg.count);
+      } else if (msg.type === "setComplete") {
+        stopTracking(msg.count);
       }
     });
-    return () => sub?.();
+
+    return () => {
+      reachabilitySub?.();
+      globalMsgSub?.();
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -238,44 +257,18 @@ export default function WorkoutActiveScreen() {
     setUsingWatch(false);
     usingWatchRef.current = false;
 
-    // Send to Watch via two paths: sendMessage (instant) + updateApplicationContext (reliable fallback)
+    // Tell Watch to start tracking — context persists so Watch receives it when opened
     if (WatchConnectivity) {
       const msg = { type: "startTracking", targetReps: targetRepsRef.current, ts: Date.now() };
       pendingWatchMsgRef.current = msg;
-      // Always update application context first — Watch receives this when it opens (no reachability needed)
       try {
         WatchConnectivity.updateApplicationContext(msg);
-        setWcDebug("updateApplicationContext sent ✓ — open Watch app to start");
+        setWcDebug("Sent to Watch · raise wrist to begin");
       } catch (e: any) {
-        setWcDebug(`updateApplicationContext err: ${e?.message}`);
+        setWcDebug(`Watch context err: ${e?.message}`);
       }
-      // Also try sendMessage in case Watch is already open
-      try {
-        WatchConnectivity.sendMessage(
-          msg,
-          () => { setWcDebug("sendMessage: SUCCESS ✓"); },
-          (e: any) => { setWcDebug(`sendMessage ERR (context already sent): ${e?.message ?? ""}`); }
-        );
-      } catch {}
-
-      watchMsgSubRef.current?.();
-      watchMsgSubRef.current = WatchConnectivity.watchEvents.on("message", (msg: any) => {
-        if (msg.type === "rep") {
-          // Watch responded — stop phone accel, switch to Watch mode
-          if (!watchRespondedRef.current) {
-            watchRespondedRef.current = true;
-            setUsingWatch(true);
-            usingWatchRef.current = true;
-            stopPhoneAccel();
-          }
-          flashRep(msg.count);
-          if (msg.count >= targetRepsRef.current) {
-            stopTracking(msg.count);
-          }
-        } else if (msg.type === "setComplete") {
-          stopTracking(msg.count);
-        }
-      });
+      // Also try immediate sendMessage if Watch is already open
+      try { WatchConnectivity.sendMessage(msg, () => {}, () => {}); } catch {}
     }
 
     // Always also start phone accel as backup
