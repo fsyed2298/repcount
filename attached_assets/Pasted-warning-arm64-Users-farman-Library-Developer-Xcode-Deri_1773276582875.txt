@@ -1,0 +1,20 @@
+warning: (arm64) /Users/farman/Library/Developer/Xcode/DerivedData/RepCountSmartGymTracker-byaipouxemdayyfcmubwtvmmghlp/Build/Products/Debug-iphoneos/RepCountSmartGymTracker.app/RepCountSmartGymTracker empty dSYM file detected, dSYM was created with an executable with no debug info.
+`UIScene` lifecycle will soon be required. Failure to adopt will result in an assert in the future.
+_setUpFeatureFlags called with release level 2
+tcp_input [C1:2] flags=[R.] seq=0, ack=2539660032, win=0 state=SYN_SENT rcv_nxt=0, snd_una=2539660031
+nw_endpoint_flow_failed_with_error [C1 192.168.7.254:8081 in_progress channel-flow (satisfied (Path is satisfied), viable, interface: en0[802.11], ipv4, dns, uses wifi, LQM: good)] already failing, returning
+Connection 1: received failure notification
+Connection 1: failed to connect 1:61, reason -1
+Connection 1: encountered error(1:61)
+nw_connection_copy_protocol_metadata_internal_block_invoke [C1] Client called nw_connection_copy_protocol_metadata_internal on unconnected nw_connection
+nw_connection_copy_protocol_metadata_internal_block_invoke [C1] Client called nw_connection_copy_protocol_metadata_internal on unconnected nw_connection
+nw_connection_copy_protocol_metadata_internal_block_invoke [C1] Client called nw_connection_copy_protocol_metadata_internal on unconnected nw_connection
+nw_connection_copy_connected_local_endpoint_block_invoke [C1] Client called nw_connection_copy_connected_local_endpoint on unconnected nw_connection
+nw_connection_copy_connected_remote_endpoint_block_invoke [C1] Client called nw_connection_copy_connected_remote_endpoint on unconnected nw_connection
+Task <616986AE-103E-4C76-8AD8-A268692D845B>.<1> HTTP load failed, 0/0 bytes (error code: -1004 [1:61])
+Task <616986AE-103E-4C76-8AD8-A268692D845B>.<1> finished with error [-1004] Error Domain=NSURLErrorDomain Code=-1004 "Could not connect to the server." UserInfo={_kCFStreamErrorCodeKey=61, NSUnderlyingError=0x15c6f7390 {Error Domain=kCFErrorDomainCFNetwork Code=-1004 "(null)" UserInfo={_NSURLErrorNWPathKey=satisfied (Path is satisfied), viable, interface: en0[802.11], ipv4, dns, uses wifi, LQM: good, _kCFStreamErrorCodeKey=61, _kCFStreamErrorDomainKey=1}}, _NSURLErrorFailingURLSessionTaskErrorKey=LocalDataTask <616986AE-103E-4C76-8AD8-A268692D845B>.<1>, _NSURLErrorRelatedURLSessionTaskErrorKey=(
+    "LocalDataTask <616986AE-103E-4C76-8AD8-A268692D845B>.<1>"
+), NSLocalizedDescription=Could not connect to the server., NSErrorFailingURLStringKey=http://192.168.7.254:8081/status, NSErrorFailingURLKey=http://192.168.7.254:8081/status, _kCFStreamErrorDomainKey=1}
+No script URL provided. Make sure the packager is running or you have embedded a JS bundle in your application bundle.
+
+unsanitizedScriptURLString = (null)
