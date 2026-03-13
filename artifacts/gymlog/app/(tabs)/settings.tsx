@@ -5,7 +5,6 @@ import {
   StyleSheet,
   ScrollView,
   Pressable,
-  Switch,
   Platform,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
@@ -57,9 +56,20 @@ function SettingRow({ icon, iconColor, label, sublabel, right, onPress }: Settin
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const { theme, accent } = useTheme();
-  const { weightUnit, setWeightUnit } = useWorkout();
+  const { weightUnit, setWeightUnit, restDuration, setRestDuration } = useWorkout();
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const isLbs = weightUnit === "lbs";
+
+  const adjustRest = (delta: number) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setRestDuration(Math.max(15, Math.min(300, restDuration + delta)));
+  };
+
+  const formatRest = (secs: number) => {
+    const m = Math.floor(secs / 60);
+    const s = secs % 60;
+    return m > 0 ? (s === 0 ? `${m}m` : `${m}m ${s}s`) : `${s}s`;
+  };
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
@@ -106,6 +116,33 @@ export default function SettingsScreen() {
                   <Text style={[styles.unitBtnText, { color: isLbs ? "#fff" : theme.textSecondary, fontFamily: "Inter_600SemiBold" }]}>
                     LBS
                   </Text>
+                </Pressable>
+              </View>
+            }
+          />
+          <SettingRow
+            icon="timer-outline"
+            iconColor="#FF9F0A"
+            label="Rest Timer"
+            sublabel={`${formatRest(restDuration)} between sets`}
+            right={
+              <View style={styles.unitToggle}>
+                <Pressable
+                  style={[styles.unitBtn, { backgroundColor: theme.backgroundTertiary }]}
+                  onPress={() => adjustRest(-15)}
+                >
+                  <Ionicons name="remove" size={16} color={theme.textSecondary} />
+                </Pressable>
+                <View style={[styles.unitBtn, { backgroundColor: `${"#FF9F0A"}18`, minWidth: 46, alignItems: "center" }]}>
+                  <Text style={[styles.unitBtnText, { color: "#FF9F0A", fontFamily: "Inter_600SemiBold" }]}>
+                    {formatRest(restDuration)}
+                  </Text>
+                </View>
+                <Pressable
+                  style={[styles.unitBtn, { backgroundColor: theme.backgroundTertiary }]}
+                  onPress={() => adjustRest(15)}
+                >
+                  <Ionicons name="add" size={16} color={theme.textSecondary} />
                 </Pressable>
               </View>
             }

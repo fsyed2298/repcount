@@ -48,7 +48,7 @@ const WINDOW_SIZE = 15;
 export default function WorkoutActiveScreen() {
   const insets = useSafeAreaInsets();
   const { theme, accent } = useTheme();
-  const { activeWorkout, addSet, completeWorkout, weightUnit } = useWorkout();
+  const { activeWorkout, addSet, completeWorkout, weightUnit, restDuration } = useWorkout();
 
   const [targetReps, setTargetReps] = useState(10);
   const [weight, setWeight] = useState(() => {
@@ -62,7 +62,9 @@ export default function WorkoutActiveScreen() {
 
   const [timer, setTimer] = useState(0);
   const [isResting, setIsResting] = useState(false);
-  const [restTimer, setRestTimer] = useState(90);
+  const [restTimer, setRestTimer] = useState(restDuration);
+  const restDurationRef = useRef(restDuration);
+  useEffect(() => { restDurationRef.current = restDuration; }, [restDuration]);
 
   const [isTracking, setIsTracking] = useState(false);
   const [currentReps, setCurrentReps] = useState(0);
@@ -167,7 +169,12 @@ export default function WorkoutActiveScreen() {
             setIsResting(false);
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
             if (restTimerRef.current) clearInterval(restTimerRef.current);
-            return 90;
+            // Tell Watch rest is done
+            if (WatchConnectivity) {
+              try { WatchConnectivity.updateApplicationContext({ type: "restEnded", ts: Date.now() }); } catch {}
+              try { WatchConnectivity.sendMessage({ type: "restEnded" }, () => {}, () => {}); } catch {}
+            }
+            return restDurationRef.current;
           }
           return t - 1;
         });
@@ -202,8 +209,14 @@ export default function WorkoutActiveScreen() {
 
     if (newSet) {
       setLastAddedSetId(newSet.id);
+      const dur = restDurationRef.current;
+      setRestTimer(dur);
       setIsResting(true);
-      setRestTimer(90);
+      // Tell Watch to show rest timer
+      if (WatchConnectivity) {
+        try { WatchConnectivity.updateApplicationContext({ type: "restStarted", duration: dur, ts: Date.now() }); } catch {}
+        try { WatchConnectivity.sendMessage({ type: "restStarted", duration: dur }, () => {}, () => {}); } catch {}
+      }
       Animated.sequence([
         Animated.timing(pulseAnim, { toValue: 1.04, duration: 120, useNativeDriver: true }),
         Animated.timing(pulseAnim, { toValue: 1, duration: 120, useNativeDriver: true }),
@@ -459,7 +472,15 @@ export default function WorkoutActiveScreen() {
             Rest: {formatTime(restTimer)}
           </Text>
           <Pressable
-            onPress={() => { setIsResting(false); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+            onPress={() => {
+              setIsResting(false);
+              setRestTimer(restDurationRef.current);
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              if (WatchConnectivity) {
+                try { WatchConnectivity.updateApplicationContext({ type: "restEnded", ts: Date.now() }); } catch {}
+                try { WatchConnectivity.sendMessage({ type: "restEnded" }, () => {}, () => {}); } catch {}
+              }
+            }}
             style={[styles.skipRestBtn, { backgroundColor: `${accent}20` }]}
           >
             <Text style={[styles.skipRestText, { color: accent, fontFamily: "Inter_500Medium" }]}>Skip</Text>

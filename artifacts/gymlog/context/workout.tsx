@@ -13,6 +13,8 @@ interface WorkoutContextType {
   isLoading: boolean;
   weightUnit: WeightUnit;
   setWeightUnit: (unit: WeightUnit) => void;
+  restDuration: number;
+  setRestDuration: (secs: number) => void;
   fetchWorkouts: () => Promise<void>;
   startWorkout: (exerciseId: string, exerciseName: string, detectedWeightKg?: number | null, isBodyweight?: boolean) => Promise<WorkoutSession | null>;
   addSet: (workoutId: string, reps: number, weightKg: number, setNumber: number) => Promise<WorkoutSet | null>;
@@ -28,6 +30,7 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
   const [activeWorkout, setActiveWorkout] = useState<WorkoutSession | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [weightUnit, setWeightUnit] = useState<WeightUnit>("lbs");
+  const [restDuration, setRestDuration] = useState(60);
 
   const fetchWorkouts = useCallback(async () => {
     try {
@@ -132,6 +135,8 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
       isLoading,
       weightUnit,
       setWeightUnit,
+      restDuration,
+      setRestDuration,
       fetchWorkouts,
       startWorkout,
       addSet,
