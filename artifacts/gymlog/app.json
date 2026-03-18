@@ -15,9 +15,14 @@
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.repcount.gymlog"
+      "bundleIdentifier": "com.repcount.gymlog",
+      "runtimeVersion": "1.0.0"
     },
-    "android": {},
+    "android": {
+      "runtimeVersion": {
+        "policy": "appVersion"
+      }
+    },
     "web": {
       "favicon": "./assets/images/icon.png"
     },
@@ -34,6 +39,18 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {
+        "origin": "https://replit.com/"
+      },
+      "eas": {
+        "projectId": "8d4cceee-3080-4aa7-bbf0-5fe2ada349d7"
+      }
+    },
+    "owner": "fsyed2298",
+    "updates": {
+      "url": "https://u.expo.dev/8d4cceee-3080-4aa7-bbf0-5fe2ada349d7"
     }
   }
 }
